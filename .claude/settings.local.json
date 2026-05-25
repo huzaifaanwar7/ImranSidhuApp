@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($doc = New-Object -ComObject Word.Application; $doc.Visible = $false; $d = $doc.Documents.Open\\('C:\\\\Users\\\\EPAZZ\\\\Downloads\\\\ISMVCC_Backend_SRS.docx'\\); $d.Content.Text; $d.Close\\(\\); $doc.Quit\\(\\))",
+      "PowerShell($dirs = @\\('lib','lib\\\\core','lib\\\\core\\\\theme','lib\\\\core\\\\constants','lib\\\\core\\\\router','lib\\\\core\\\\utils','lib\\\\core\\\\widgets','lib\\\\models','lib\\\\data','lib\\\\features','lib\\\\features\\\\splash','lib\\\\features\\\\onboarding','lib\\\\features\\\\auth','lib\\\\features\\\\home','lib\\\\features\\\\matches','lib\\\\features\\\\matches\\\\widgets','lib\\\\features\\\\teams','lib\\\\features\\\\players','lib\\\\features\\\\tournaments','lib\\\\features\\\\statistics','lib\\\\features\\\\notifications','lib\\\\features\\\\sponsors','lib\\\\features\\\\profile','lib\\\\features\\\\search','assets','assets\\\\logos','assets\\\\images','assets\\\\icons'\\); foreach \\($d in $dirs\\) { New-Item -ItemType Directory -Force -Path \"D:\\\\Imran Sidhu VCC App\\\\$d\" | Out-Null }; Write-Output 'done')",
+      "PowerShell(Get-Command flutter -ErrorAction SilentlyContinue)",
+      "Bash(flutter devices *)",
+      "Bash(flutter run *)",
+      "PowerShell(Get-Process java -ErrorAction SilentlyContinue)",
+      "PowerShell(Stop-Process -Force -ErrorAction SilentlyContinue)",
+      "Bash(rm -rf ~/.gradle/wrapper/dists/gradle-8.14-all* && echo \"Gradle cache cleaned\")",
+      "Bash(flutter clean *)",
+      "Bash(flutter pub *)",
+      "Bash(flutter analyze *)",
+      "Bash(dart analyze *)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\EPAZZ\\.gradle\\wrapper\\dists"
+    ]
+  }
+}
