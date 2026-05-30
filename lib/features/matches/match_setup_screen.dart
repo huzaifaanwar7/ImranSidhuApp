@@ -7,6 +7,8 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_top_bar.dart';
 import '../../core/widgets/primary_button.dart';
 import '../../core/widgets/team_badge.dart';
+import '../../data/api_client.dart';
+import '../../data/backend_sync.dart';
 import '../../data/mock_data.dart';
 import '../../models/enums.dart';
 import '../../models/match.dart';
@@ -23,6 +25,10 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
   final _venue = TextEditingController();
   final _stage = TextEditingController();
   final _overs = TextEditingController(text: '20');
+  final _ballsPerOver = TextEditingController(text: '6');
+  final _homePenalty = TextEditingController(text: '0');
+  final _awayPenalty = TextEditingController(text: '0');
+  final _penaltyReason = TextEditingController();
 
   String? _homeId;
   String? _awayId;
@@ -49,6 +55,10 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
     _venue.dispose();
     _stage.dispose();
     _overs.dispose();
+    _ballsPerOver.dispose();
+    _homePenalty.dispose();
+    _awayPenalty.dispose();
+    _penaltyReason.dispose();
     super.dispose();
   }
 
@@ -108,12 +118,24 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
           .take(11)
           .toList(),
     );
-    await MockData.saveMatch(match);
-    if (!mounted) return;
-    setState(() => _saving = false);
-    context.go(_state == MatchState.live
-        ? '/match/${match.id}/score'
-        : '/match/${match.id}');
+    try {
+      final saved = await BackendSync.instance.upsertMatch(
+        match,
+        ballsPerOver: _int(_ballsPerOver.text, 6),
+        homePenaltyRuns: _int(_homePenalty.text, 0),
+        awayPenaltyRuns: _int(_awayPenalty.text, 0),
+        penaltyReason: _emptyToNull(_penaltyReason.text),
+      );
+      if (!mounted) return;
+      setState(() => _saving = false);
+      context.go(_state == MatchState.live
+          ? '/match/${saved.id}/score'
+          : '/match/${saved.id}');
+    } on ApiException catch (e) {
+      if (mounted) { setState(() => _saving = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
+    } catch (e) {
+      if (mounted) { setState(() => _saving = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $e'))); }
+    }
   }
 
   void _showMessage(String text) {
@@ -203,8 +225,28 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
                           Expanded(
                               child: _field('OVERS', _overs,
                                   keyboard: TextInputType.number)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                              child: _field('BALLS/OVER', _ballsPerOver,
+                                  keyboard: TextInputType.number)),
                         ],
                       ),
+                      const SizedBox(height: 18),
+                      _label('LATE / SLOW-OVER PENALTY (RUNS)'),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                              child: _field('vs HOME', _homePenalty,
+                                  keyboard: TextInputType.number)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                              child: _field('vs AWAY', _awayPenalty,
+                                  keyboard: TextInputType.number)),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _field('PENALTY REASON', _penaltyReason),
                       const SizedBox(height: 18),
                       _dropdown<MatchState>(
                         'STATUS',

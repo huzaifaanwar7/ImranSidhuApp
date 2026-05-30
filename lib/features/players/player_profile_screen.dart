@@ -5,18 +5,40 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_top_bar.dart';
 import '../../core/widgets/team_badge.dart';
+import '../../data/api_client.dart';
 import '../../data/mock_data.dart';
 import '../../models/enums.dart';
 import '../../models/player.dart';
 
-class PlayerProfileScreen extends StatelessWidget {
+class PlayerProfileScreen extends StatefulWidget {
   final String playerId;
-
   const PlayerProfileScreen({super.key, required this.playerId});
 
   @override
+  State<PlayerProfileScreen> createState() => _PlayerProfileScreenState();
+}
+
+class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
+  Map<String, dynamic>? _stats;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchStats();
+  }
+
+  Future<void> _fetchStats() async {
+    final id = int.tryParse(widget.playerId);
+    if (id == null) return;
+    try {
+      final res = await ApiClient.instance.get('/api/players/$id/stats');
+      if (mounted) setState(() => _stats = Map<String, dynamic>.from(res as Map));
+    } catch (_) {/* fall back to local Player aggregates */}
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final player = MockData.playerOrNull(playerId);
+    final player = MockData.playerOrNull(widget.playerId);
     if (player == null) {
       return Scaffold(
         backgroundColor: AppColors.cream,
@@ -37,6 +59,14 @@ class PlayerProfileScreen extends StatelessWidget {
     final team =
         player.teamId == null ? null : MockData.teamOrNull(player.teamId);
 
+    // Prefer live backend stats if available, else fall back to local Player.
+    final bat = _stats?['batting'] as Map?;
+    final bowl = _stats?['bowling'] as Map?;
+    final matchesPlayed = _stats?['matchesPlayed'] as int? ?? player.matches;
+    final runs = bat?['runs'] as int? ?? player.runs;
+    final wickets = bowl?['wickets'] as int? ?? player.wickets;
+    final avg = (bat?['average'] as num?)?.toDouble() ?? player.average;
+
     return Scaffold(
       backgroundColor: AppColors.cream,
       body: SafeArea(
@@ -49,10 +79,10 @@ class PlayerProfileScreen extends StatelessWidget {
               color: Colors.white,
               child: Row(
                 children: [
-                  _stat('${player.matches}', 'MATCHES'),
-                  _stat('${player.runs}', 'RUNS'),
-                  _stat('${player.wickets}', 'WICKETS'),
-                  _stat(player.average.toStringAsFixed(1), 'AVG', last: true),
+                  _stat('$matchesPlayed', 'MATCHES'),
+                  _stat('$runs', 'RUNS'),
+                  _stat('$wickets', 'WICKETS'),
+                  _stat(avg.toStringAsFixed(1), 'AVG', last: true),
                 ],
               ),
             ),
@@ -60,24 +90,32 @@ class PlayerProfileScreen extends StatelessWidget {
             _section(
               title: 'Batting Statistics',
               child: _statTable([
-                ('Innings', '${player.innings}'),
-                ('Runs', '${player.runs}'),
-                ('Highest score', '${player.highestScore}'),
-                ('Average', player.average.toStringAsFixed(2)),
-                ('Strike rate', player.strikeRate.toStringAsFixed(2)),
-                ('Fours', '${player.fours}'),
-                ('Sixes', '${player.sixes}'),
-                ('Fifties', '${player.fifties}'),
-                ('Hundreds', '${player.hundreds}'),
+                ('Innings', '${bat?['innings'] ?? player.innings}'),
+                ('Not outs', '${bat?['notOuts'] ?? 0}'),
+                ('Runs', '${bat?['runs'] ?? player.runs}'),
+                ('Balls faced', '${bat?['ballsFaced'] ?? 0}'),
+                ('Highest score', '${bat?['highestScore'] ?? player.highestScore}'),
+                ('Average', ((bat?['average'] as num?)?.toDouble() ?? player.average).toStringAsFixed(2)),
+                ('Strike rate', ((bat?['strikeRate'] as num?)?.toDouble() ?? player.strikeRate).toStringAsFixed(2)),
+                ('Fours', '${bat?['fours'] ?? player.fours}'),
+                ('Sixes', '${bat?['sixes'] ?? player.sixes}'),
+                ('Fifties', '${bat?['fifties'] ?? player.fifties}'),
+                ('Hundreds', '${bat?['hundreds'] ?? player.hundreds}'),
               ]),
             ),
             Container(height: 6, color: AppColors.cream),
             _section(
               title: 'Bowling & Fielding',
               child: _statTable([
-                ('Wickets', '${player.wickets}'),
-                ('Best bowling', player.bestBowling),
-                ('Economy', player.economy.toStringAsFixed(2)),
+                ('Overs bowled', ((bowl?['oversBowled'] as num?)?.toDouble() ?? 0).toStringAsFixed(1)),
+                ('Maidens', '${bowl?['maidens'] ?? 0}'),
+                ('Runs conceded', '${bowl?['runsConceded'] ?? 0}'),
+                ('Wickets', '${bowl?['wickets'] ?? player.wickets}'),
+                ('Best bowling', '${bowl?['bestBowling'] ?? player.bestBowling}'),
+                ('Average', ((bowl?['average'] as num?)?.toDouble())?.toStringAsFixed(2) ?? '-'),
+                ('Economy', ((bowl?['economy'] as num?)?.toDouble() ?? player.economy).toStringAsFixed(2)),
+                ('Strike rate', ((bowl?['strikeRate'] as num?)?.toDouble())?.toStringAsFixed(2) ?? '-'),
+                ('5-wicket hauls', '${bowl?['fiveWicketHauls'] ?? 0}'),
                 ('Catches', '${player.catches}'),
               ]),
             ),
@@ -193,19 +231,20 @@ class _Header extends StatelessWidget {
         children: [
           Row(
             children: [
-              IconBtn(
-                icon: Icons.arrow_back_rounded,
-                bg: Colors.white.withValues(alpha: 0.1),
-                color: AppColors.cream,
+              GestureDetector(
                 onTap: () => context.pop(),
+                child: Text('BACK',
+                    style: AppTextStyles.mono(
+                        size: 9, color: AppColors.gold, letterSpacing: 0.25, weight: FontWeight.w700)),
               ),
               const Spacer(),
-              IconBtn(
-                icon: Icons.edit_outlined,
-                bg: Colors.white.withValues(alpha: 0.1),
-                color: AppColors.cream,
-                onTap: () => context.push('/player/${player.id}/edit'),
-              ),
+              if (ApiClient.instance.canManagePlayers)
+                IconBtn(
+                  icon: Icons.edit_outlined,
+                  bg: Colors.white.withValues(alpha: 0.1),
+                  color: AppColors.cream,
+                  onTap: () => context.push('/player/${player.id}/edit'),
+                ),
             ],
           ),
           const SizedBox(height: 14),
@@ -214,8 +253,14 @@ class _Header extends StatelessWidget {
               CircleAvatar(
                 radius: 42,
                 backgroundColor: AppColors.ballRed,
-                child: Text(player.initials,
-                    style: AppTextStyles.bebas(size: 30, color: Colors.white)),
+                backgroundImage: ApiClient.imageUrl(player.photoUrl) != null
+                    ? NetworkImage(ApiClient.imageUrl(player.photoUrl)!)
+                    : null,
+                child: ApiClient.imageUrl(player.photoUrl) != null
+                    ? null
+                    : Text(player.initials,
+                        style:
+                            AppTextStyles.bebas(size: 30, color: Colors.white)),
               ),
               const SizedBox(width: 14),
               Expanded(

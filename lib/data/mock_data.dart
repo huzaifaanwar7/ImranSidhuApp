@@ -10,23 +10,12 @@ import '../models/player.dart';
 import '../models/sponsor.dart';
 import '../models/team.dart';
 import '../models/tournament.dart';
-import '../models/user.dart';
 import 'app_store.dart';
 
 class MockData {
   MockData._();
 
   static final AppStore store = AppStore.instance;
-
-  static const AppUser currentUser = AppUser(
-    id: 'admin',
-    fullName: 'Administrator',
-    email: 'admin@ismvcc.app',
-    phone: '',
-    roles: [UserRole.admin, UserRole.scorer, UserRole.organizer],
-    emailVerified: true,
-    photoUrl: null,
-  );
 
   static Future<void> load() => store.load();
 

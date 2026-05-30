@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/team_badge.dart';
+import '../../data/api_client.dart';
 import '../../data/mock_data.dart';
 import '../../models/enums.dart';
 import '../../models/team.dart';
@@ -152,15 +153,17 @@ class _TeamsListScreenState extends State<TeamsListScreen> {
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: AppColors.ballRed,
-        foregroundColor: Colors.white,
-        onPressed: () async {
-          await context.push('/team/new');
-          if (mounted) setState(() {});
-        },
-        child: const Icon(Icons.add_rounded),
-      ),
+      floatingActionButton: ApiClient.instance.canManageTeams
+          ? FloatingActionButton(
+              backgroundColor: AppColors.ballRed,
+              foregroundColor: Colors.white,
+              onPressed: () async {
+                await context.push('/team/new');
+                if (mounted) setState(() {});
+              },
+              child: const Icon(Icons.add_rounded),
+            )
+          : null,
     );
   }
 
@@ -298,7 +301,7 @@ class _EmptyTeams extends StatelessWidget {
               style:
                   AppTextStyles.italicAccent(size: 13, color: AppColors.grey),
             ),
-            if (!hasFilter) ...[
+            if (!hasFilter && ApiClient.instance.canManageTeams) ...[
               const SizedBox(height: 14),
               ElevatedButton.icon(
                 onPressed: () => context.push('/team/new'),

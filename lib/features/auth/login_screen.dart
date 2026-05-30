@@ -4,6 +4,9 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_logo.dart';
 import '../../core/widgets/primary_button.dart';
+import '../../data/api_client.dart';
+import '../../data/auth_service.dart';
+import '../../data/backend_sync.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -13,23 +16,40 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _email = TextEditingController();
+  final _user = TextEditingController();
   final _pass = TextEditingController();
   bool _obscure = true;
   bool _loading = false;
 
   @override
   void dispose() {
-    _email.dispose();
+    _user.dispose();
     _pass.dispose();
     super.dispose();
   }
 
-  void _go() async {
+  Future<void> _go() async {
+    if (_user.text.isEmpty || _pass.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter username and password')),
+      );
+      return;
+    }
     setState(() => _loading = true);
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (!mounted) return;
-    context.go('/home');
+    try {
+      await AuthService.instance.login(_user.text.trim(), _pass.text);
+      await BackendSync.instance.refreshAll();
+      if (!mounted) return;
+      context.go('/home');
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Login failed: $e')));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
@@ -63,12 +83,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: AppTextStyles.italicAccent(
                       size: 13, color: AppColors.grey)),
               const SizedBox(height: 26),
-              _label('EMAIL OR PHONE'),
+              _label('USERNAME OR EMAIL'),
               const SizedBox(height: 6),
               TextField(
-                controller: _email,
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(hintText: 'you@example.com'),
+                controller: _user,
+                decoration: const InputDecoration(hintText: 'superadmin'),
                 style:
                     AppTextStyles.fraunces(size: 14, weight: FontWeight.w600),
               ),
@@ -78,6 +97,7 @@ class _LoginScreenState extends State<LoginScreen> {
               TextField(
                 controller: _pass,
                 obscureText: _obscure,
+                onSubmitted: (_) => _go(),
                 decoration: InputDecoration(
                   hintText: '••••••••',
                   suffixIcon: IconButton(

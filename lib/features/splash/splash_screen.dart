@@ -22,7 +22,10 @@ class _SplashScreenState extends State<SplashScreen>
   void initState() {
     super.initState();
     Future.delayed(const Duration(milliseconds: 2400), () {
-      if (mounted) context.go('/onboarding');
+      if (!mounted) return;
+      // Viewers don't need to log in — go straight to /home.
+      // The Sign In button on home lets anyone sign in to unlock role features.
+      context.go('/home');
     });
   }
 

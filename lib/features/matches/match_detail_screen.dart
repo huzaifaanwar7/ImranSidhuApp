@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/sponsor_banner.dart';
 import '../../core/widgets/team_badge.dart';
+import '../../data/api_client.dart';
 import '../../data/mock_data.dart';
+import '../../data/scoring_service.dart';
 import '../../models/enums.dart';
 import '../../models/match.dart';
 
@@ -21,13 +25,80 @@ class MatchDetailScreen extends StatefulWidget {
   State<MatchDetailScreen> createState() => _MatchDetailScreenState();
 }
 
+class _LiveScoreBanner extends StatelessWidget {
+  final Map<String, dynamic> card;
+  const _LiveScoreBanner({required this.card});
+
+  @override
+  Widget build(BuildContext context) {
+    final innings = (card['innings'] as List?) ?? const [];
+    if (innings.isEmpty) return const SizedBox.shrink();
+    final current = Map<String, dynamic>.from(innings.last as Map);
+    final runs = current['totalRuns'] ?? 0;
+    final wkts = current['wickets'] ?? 0;
+    final legalBalls = current['legalBallsBowled'] as int? ?? 0;
+    final overs = '${legalBalls ~/ 6}.${legalBalls % 6}';
+    final match = card['match'] is Map ? Map<String, dynamic>.from(card['match'] as Map) : null;
+    final homePen = match?['homePenaltyRuns'] ?? 0;
+    final awayPen = match?['awayPenaltyRuns'] ?? 0;
+    return Container(
+      color: AppColors.navy,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          Text('LIVE',
+              style: AppTextStyles.mono(
+                  size: 9, color: AppColors.ballRed, weight: FontWeight.w800, letterSpacing: 0.25)),
+          const SizedBox(width: 10),
+          Text('$runs/$wkts',
+              style: AppTextStyles.fraunces(
+                  size: 18, weight: FontWeight.w900, color: AppColors.cream)),
+          const SizedBox(width: 8),
+          Text('($overs ov)',
+              style: AppTextStyles.mono(
+                  size: 10, color: AppColors.gold, letterSpacing: 0.2)),
+          const Spacer(),
+          if ((homePen as int) > 0 || (awayPen as int) > 0)
+            Text('PENALTY  H:$homePen  A:$awayPen',
+                style: AppTextStyles.mono(
+                    size: 8, color: AppColors.gold, letterSpacing: 0.2, weight: FontWeight.w700)),
+        ],
+      ),
+    );
+  }
+}
+
 class _MatchDetailScreenState extends State<MatchDetailScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tab =
       TabController(length: 4, vsync: this, initialIndex: widget.initialTab);
 
+  Timer? _pollTimer;
+  Map<String, dynamic>? _liveScorecard;
+
+  @override
+  void initState() {
+    super.initState();
+    _startPolling();
+  }
+
+  void _startPolling() {
+    final mid = int.tryParse(widget.matchId);
+    if (mid == null) return;
+    _refresh(mid);
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _refresh(mid));
+  }
+
+  Future<void> _refresh(int mid) async {
+    try {
+      final card = await ScoringService.instance.scorecard(mid);
+      if (mounted) setState(() => _liveScorecard = card);
+    } catch (_) {/* keep last known */}
+  }
+
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _tab.dispose();
     super.dispose();
   }
@@ -51,8 +122,9 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
                 children: [
                   GestureDetector(
                     onTap: () => context.pop(),
-                    child: const Icon(Icons.arrow_back_rounded,
-                        size: 16, color: AppColors.cream),
+                    child: Text('BACK',
+                        style: AppTextStyles.mono(
+                            size: 9, color: AppColors.gold, letterSpacing: 0.25, weight: FontWeight.w700)),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -99,6 +171,8 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
                 ],
               ),
             ),
+            // Live score banner — polled every 5s from /scorecard
+            if (_liveScorecard != null) _LiveScoreBanner(card: _liveScorecard!),
             // Score strip (only if has innings)
             if (m.innings.isNotEmpty)
               _ScoreStrip(match: m, home: home, away: away),
@@ -130,7 +204,7 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
           ],
         ),
       ),
-      bottomNavigationBar: m.isLive
+      bottomNavigationBar: (m.isLive && ApiClient.instance.canScore)
           ? SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(12),

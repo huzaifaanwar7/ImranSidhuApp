@@ -57,8 +57,9 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                 children: [
                   GestureDetector(
                     onTap: () => context.pop(),
-                    child: const Icon(Icons.arrow_back_rounded,
-                        size: 18, color: AppColors.cream),
+                    child: Text('BACK',
+                        style: AppTextStyles.mono(
+                            size: 9, color: AppColors.gold, letterSpacing: 0.25, weight: FontWeight.w700)),
                   ),
                   const SizedBox(width: 12),
                   Expanded(

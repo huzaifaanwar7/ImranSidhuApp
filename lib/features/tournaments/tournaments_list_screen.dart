@@ -6,6 +6,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_top_bar.dart';
 import '../../core/widgets/team_badge.dart';
+import '../../data/api_client.dart';
 import '../../data/mock_data.dart';
 import '../../models/enums.dart';
 import '../../models/tournament.dart';
@@ -33,14 +34,16 @@ class _TournamentsListScreenState extends State<TournamentsListScreen> {
               IconBtn(
                   icon: Icons.search_rounded,
                   onTap: () => context.push('/search')),
-              const SizedBox(width: 6),
-              IconBtn(
-                icon: Icons.add_rounded,
-                onTap: () async {
-                  await context.push('/tournament/new');
-                  if (mounted) setState(() {});
-                },
-              ),
+              if (ApiClient.instance.canManageTournaments) ...[
+                const SizedBox(width: 6),
+                IconBtn(
+                  icon: Icons.add_rounded,
+                  onTap: () async {
+                    await context.push('/tournament/new');
+                    if (mounted) setState(() {});
+                  },
+                ),
+              ],
             ]),
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
@@ -70,17 +73,19 @@ class _TournamentsListScreenState extends State<TournamentsListScreen> {
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: AppColors.ballRed,
-        foregroundColor: Colors.white,
-        onPressed: () async {
-          await context.push('/tournament/new');
-          if (mounted) setState(() {});
-        },
-        icon: const Icon(Icons.add_rounded),
-        label: Text('TOURNAMENT',
-            style: AppTextStyles.bebas(size: 14, color: Colors.white)),
-      ),
+      floatingActionButton: ApiClient.instance.canManageTournaments
+          ? FloatingActionButton.extended(
+              backgroundColor: AppColors.ballRed,
+              foregroundColor: Colors.white,
+              onPressed: () async {
+                await context.push('/tournament/new');
+                if (mounted) setState(() {});
+              },
+              icon: const Icon(Icons.add_rounded),
+              label: Text('TOURNAMENT',
+                  style: AppTextStyles.bebas(size: 14, color: Colors.white)),
+            )
+          : null,
     );
   }
 }
@@ -121,12 +126,13 @@ class _TournamentCard extends StatelessWidget {
                         size: 9, color: AppColors.gold, letterSpacing: 0.3),
                   ),
                 ),
-                IconButton(
-                  onPressed: () =>
-                      context.push('/tournament/${tournament.id}/edit'),
-                  icon: const Icon(Icons.edit_outlined,
-                      color: AppColors.cream, size: 18),
-                ),
+                if (ApiClient.instance.canManageTournaments)
+                  IconButton(
+                    onPressed: () =>
+                        context.push('/tournament/${tournament.id}/edit'),
+                    icon: const Icon(Icons.edit_outlined,
+                        color: AppColors.cream, size: 18),
+                  ),
               ],
             ),
             const SizedBox(height: 10),
@@ -219,12 +225,14 @@ class _EmptyTournaments extends StatelessWidget {
               style:
                   AppTextStyles.italicAccent(size: 13, color: AppColors.grey),
             ),
-            const SizedBox(height: 14),
-            ElevatedButton.icon(
-              onPressed: () => context.push('/tournament/new'),
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('Add tournament'),
-            ),
+            if (ApiClient.instance.canManageTournaments) ...[
+              const SizedBox(height: 14),
+              ElevatedButton.icon(
+                onPressed: () => context.push('/tournament/new'),
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('Add tournament'),
+              ),
+            ],
           ],
         ),
       ),

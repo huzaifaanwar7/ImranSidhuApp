@@ -6,6 +6,7 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/sponsor_banner.dart';
 import '../../core/widgets/team_badge.dart';
 import '../../data/mock_data.dart';
+import '../../data/scoring_service.dart';
 import '../../models/enums.dart';
 
 class LiveScoringScreen extends StatefulWidget {
@@ -66,6 +67,9 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
 
   int target = 0;
 
+  int? _inningsId;
+  bool _initializingInnings = false;
+
   bool isFreeHit = false;
   bool wideToggle = false;
   bool noBallToggle = false;
@@ -81,6 +85,61 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
     recentBalls
       ..clear()
       ..addAll(['-', '-', '-', '-', '-', '-']);
+    _ensureInnings();
+  }
+
+  Future<void> _ensureInnings() async {
+    if (_inningsId != null || _initializingInnings) return;
+    final matchIdInt = int.tryParse(widget.matchId);
+    if (matchIdInt == null) return; // local-only id, can't sync
+    _initializingInnings = true;
+    try {
+      final m = MockData.matchById(widget.matchId);
+      final bat = int.tryParse(m.homeTeamId);
+      final bowl = int.tryParse(m.awayTeamId);
+      if (bat == null || bowl == null) return;
+      final res = await ScoringService.instance.startInnings(
+        matchId: matchIdInt, battingTeamId: bat, bowlingTeamId: bowl, inningsNumber: 1,
+      );
+      _inningsId = res['id'] as int?;
+    } catch (_) {
+      // Offline — keep scoring locally; backend sync attempted again on next ball.
+    } finally {
+      _initializingInnings = false;
+    }
+  }
+
+  /// Fire-and-forget — sends the latest ball to the backend so viewers see live updates.
+  Future<void> _pushBall({
+    required int runsBatter,
+    int runsExtras = 0,
+    String? extrasType,
+    bool isLegalDelivery = true,
+    bool isWicket = false,
+    String? wicketType,
+  }) async {
+    final matchIdInt = int.tryParse(widget.matchId);
+    if (matchIdInt == null) return;
+    if (_inningsId == null) await _ensureInnings();
+    if (_inningsId == null) return;
+    try {
+      await ScoringService.instance.recordBall(
+        matchId: matchIdInt,
+        inningsId: _inningsId!,
+        overNumber: overNumber,
+        ballInOver: ballInOver,
+        strikerPlayerId: int.tryParse(strikerId),
+        nonStrikerPlayerId: int.tryParse(nonStrikerId),
+        bowlerPlayerId: int.tryParse(bowlerId),
+        runsBatter: runsBatter,
+        runsExtras: runsExtras,
+        extrasType: extrasType,
+        isLegalDelivery: isLegalDelivery,
+        isFreeHit: isFreeHit,
+        isWicket: isWicket,
+        wicketType: wicketType,
+      );
+    } catch (_) {/* network errors swallowed — local state is the source of truth */}
   }
 
   void _snapshot() {
@@ -125,6 +184,8 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
   void _recordRun(int runs) {
     HapticFeedback.lightImpact();
     _snapshot();
+    final bool wasWide = wideToggle, wasNoBall = noBallToggle;
+    final bool wasBye = byeToggle, wasLegBye = legByeToggle;
     setState(() {
       if (wideToggle || noBallToggle) {
         totalRuns += 1 + runs;
@@ -164,6 +225,18 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
         _showOverEndSheet();
       }
     });
+    // After local state settles, sync this ball to backend.
+    if (wasWide) {
+      _pushBall(runsBatter: 0, runsExtras: 1 + runs, extrasType: 'Wide', isLegalDelivery: false);
+    } else if (wasNoBall) {
+      _pushBall(runsBatter: runs, runsExtras: 1, extrasType: 'NoBall', isLegalDelivery: false);
+    } else if (wasBye) {
+      _pushBall(runsBatter: 0, runsExtras: runs, extrasType: 'Bye');
+    } else if (wasLegBye) {
+      _pushBall(runsBatter: 0, runsExtras: runs, extrasType: 'LegBye');
+    } else {
+      _pushBall(runsBatter: runs);
+    }
   }
 
   void _wicketSheet() async {
@@ -194,6 +267,7 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
           _showOverEndSheet();
         }
       });
+      _pushBall(runsBatter: 0, isWicket: true, wicketType: r.label.replaceAll(' ', ''));
     }
   }
 
@@ -222,6 +296,11 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
         ..clear()
         ..addAll(s.recent);
     });
+    // Sync undo with backend
+    final mid = int.tryParse(widget.matchId);
+    if (mid != null) {
+      ScoringService.instance.undoLastBall(mid).catchError((_) {});
+    }
   }
 
   void _showOverEndSheet() {
@@ -321,9 +400,9 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
                     children: [
                       GestureDetector(
                         onTap: () => context.pop(),
-                        child: Icon(Icons.arrow_back_rounded,
-                            size: 16,
-                            color: AppColors.cream.withValues(alpha: 0.6)),
+                        child: Text('BACK',
+                            style: AppTextStyles.mono(
+                                size: 9, color: AppColors.gold, letterSpacing: 0.25, weight: FontWeight.w700)),
                       ),
                       const SizedBox(width: 6),
                       Expanded(

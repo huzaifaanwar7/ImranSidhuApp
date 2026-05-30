@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../data/api_client.dart';
 import '../../models/team.dart';
 import '../theme/app_text_styles.dart';
 
@@ -24,6 +25,16 @@ class TeamBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = _palette();
+    final logoUrl = ApiClient.imageUrl(team.flagUrl);
+    final radius = BorderRadius.circular(size * 0.18);
+    final letterChild = Text(
+      team.shortCode,
+      style: AppTextStyles.bebas(
+        size: size * 0.38,
+        color: Colors.white,
+        letterSpacing: 0.04,
+      ),
+    );
     final flag = Container(
       width: size,
       height: size,
@@ -33,7 +44,7 @@ class TeamBadge extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: p,
         ),
-        borderRadius: BorderRadius.circular(size * 0.18),
+        borderRadius: radius,
         boxShadow: [
           BoxShadow(
             color: p.first.withValues(alpha: 0.25),
@@ -43,14 +54,16 @@ class TeamBadge extends StatelessWidget {
         ],
       ),
       alignment: Alignment.center,
-      child: Text(
-        team.shortCode,
-        style: AppTextStyles.bebas(
-          size: size * 0.38,
-          color: Colors.white,
-          letterSpacing: 0.04,
-        ),
-      ),
+      clipBehavior: logoUrl != null ? Clip.antiAlias : Clip.none,
+      child: logoUrl == null
+          ? letterChild
+          : Image.network(
+              logoUrl,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Center(child: letterChild),
+            ),
     );
 
     if (!showName) return flag;

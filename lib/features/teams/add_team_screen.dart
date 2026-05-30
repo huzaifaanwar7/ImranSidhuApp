@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -5,6 +7,9 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_top_bar.dart';
 import '../../core/widgets/primary_button.dart';
+import '../../data/api_client.dart';
+import '../../data/backend_sync.dart';
+import '../../data/image_picker_helper.dart';
 import '../../data/mock_data.dart';
 import '../../models/enums.dart';
 import '../../models/team.dart';
@@ -33,6 +38,10 @@ class _AddTeamScreenState extends State<AddTeamScreen> {
   Color _primaryColor = AppColors.navy;
   Color _secondaryColor = AppColors.gold;
   String? _captainId;
+  int? _captainUserId;
+  List<Map<String, dynamic>> _candidateCaptains = [];
+  String? _logoBase64;       // newly picked image, sent to backend
+  String? _existingLogoUrl;  // already-saved CDN URL
   bool _saving = false;
 
   bool get _isEdit => widget.teamId != null;
@@ -55,7 +64,26 @@ class _AddTeamScreenState extends State<AddTeamScreen> {
       _primaryColor = team.primaryColor;
       _secondaryColor = team.secondaryColor;
       _captainId = team.captainId;
+      _existingLogoUrl = team.flagUrl;
     }
+    _loadCandidateCaptains();
+  }
+
+  Future<void> _pickLogo() async {
+    final b64 = await ImagePickerHelper.pickAsBase64();
+    if (b64 != null) setState(() => _logoBase64 = b64);
+  }
+
+  Future<void> _loadCandidateCaptains() async {
+    if (!ApiClient.instance.isSuperAdmin) return;
+    try {
+      final res = await ApiClient.instance.get('/api/users',
+          query: {'pageSize': 200, 'status': 'Approved'});
+      final list = List<Map<String, dynamic>>.from(res['items'] as List);
+      // Allow assigning any non-fan user; Captain/Player/Scorer can all be promoted.
+      _candidateCaptains = list.where((u) => u['role'] != 'SuperAdmin').toList();
+      if (mounted) setState(() {});
+    } catch (_) {/* ignore */}
   }
 
   @override
@@ -99,10 +127,27 @@ class _AddTeamScreenState extends State<AddTeamScreen> {
       ties: _int(_ties.text),
       noResults: _int(_noResults.text),
     );
-    await MockData.saveTeam(team);
-    if (!mounted) return;
-    setState(() => _saving = false);
-    context.pop();
+    try {
+      await BackendSync.instance.upsertTeam(team, logoBase64: _logoBase64, captainUserId: _captainUserId);
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_isEdit
+            ? 'Team updated.'
+            : 'Team submitted — pending SuperAdmin approval.'),
+      ));
+      context.pop();
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $e')));
+      }
+    }
   }
 
   Future<void> _delete() async {
@@ -126,8 +171,12 @@ class _AddTeamScreenState extends State<AddTeamScreen> {
       ),
     );
     if (confirmed != true || widget.teamId == null) return;
-    await MockData.deleteTeam(widget.teamId!);
-    if (mounted) context.go('/teams');
+    try {
+      await BackendSync.instance.deleteTeam(widget.teamId!);
+      if (mounted) context.go('/teams');
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
   }
 
   void _showMessage(String text) {
@@ -166,6 +215,9 @@ class _AddTeamScreenState extends State<AddTeamScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
               children: [
+                _section('TEAM LOGO'),
+                _logoPicker(),
+                const SizedBox(height: 16),
                 _section('TEAM PROFILE'),
                 _field('TEAM NAME', _name),
                 const SizedBox(height: 12),
@@ -242,6 +294,11 @@ class _AddTeamScreenState extends State<AddTeamScreen> {
                   const SizedBox(height: 16),
                   _captainDropdown(captainExists ? _captainId : null, roster),
                 ],
+                if (ApiClient.instance.isSuperAdmin) ...[
+                  const SizedBox(height: 16),
+                  _section('CAPTAIN USER'),
+                  _userCaptainDropdown(),
+                ],
                 const SizedBox(height: 22),
                 PrimaryButton(
                   label: _isEdit ? 'Save Team' : 'Create Team',
@@ -253,6 +310,93 @@ class _AddTeamScreenState extends State<AddTeamScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _userCaptainDropdown() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _label('ASSIGN CAPTAIN (existing user)'),
+        const SizedBox(height: 6),
+        DropdownButtonFormField<int>(
+          initialValue: _captainUserId,
+          items: [
+            const DropdownMenuItem<int>(value: null, child: Text('No captain yet')),
+            ..._candidateCaptains.map((u) => DropdownMenuItem<int>(
+                  value: u['id'] as int,
+                  child: Text('${u['fullName']} (${u['username']}) — ${u['role']}'),
+                )),
+          ],
+          onChanged: (v) => setState(() => _captainUserId = v),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'The selected user becomes the team captain. They can then add players (each player is held pending until SuperAdmin approves).',
+          style: AppTextStyles.italicAccent(size: 11, color: AppColors.grey),
+        ),
+      ],
+    );
+  }
+
+  Widget _logoPicker() {
+    final hasNew = _logoBase64 != null;
+    final hasExisting = _existingLogoUrl != null && _existingLogoUrl!.isNotEmpty;
+    return Row(
+      children: [
+        Container(
+          width: 72, height: 72,
+          decoration: BoxDecoration(
+            color: AppColors.navyDeep.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.line),
+          ),
+          alignment: Alignment.center,
+          clipBehavior: (hasNew || hasExisting) ? Clip.antiAlias : Clip.none,
+          child: hasNew
+              ? Image.memory(
+                  base64Decode(_logoBase64!.split(',').last),
+                  width: 72, height: 72, fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const Icon(
+                      Icons.broken_image_outlined, color: AppColors.grey, size: 30),
+                )
+              : hasExisting
+                  ? Image.network(
+                      ApiClient.imageUrl(_existingLogoUrl)!,
+                      width: 72, height: 72, fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const Icon(
+                          Icons.shield_rounded, color: AppColors.navyDeep, size: 30),
+                    )
+                  : const Icon(Icons.shield_outlined, color: AppColors.grey, size: 30),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(hasNew ? 'New logo selected' : (hasExisting ? 'Current logo saved' : 'No logo yet'),
+                  style: AppTextStyles.fraunces(size: 12, weight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _pickLogo,
+                    icon: const Icon(Icons.image_outlined, size: 14),
+                    label: const Text('PICK IMAGE'),
+                  ),
+                  if (hasNew) ...[
+                    const SizedBox(width: 6),
+                    TextButton(
+                      onPressed: () => setState(() => _logoBase64 = null),
+                      child: const Text('CLEAR'),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

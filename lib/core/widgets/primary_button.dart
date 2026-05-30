@@ -20,7 +20,7 @@ class PrimaryButton extends StatelessWidget {
     this.loading = false,
     this.fullWidth = true,
     this.color = AppColors.ballRed,
-    this.trailingArrow = '→',
+    this.trailingArrow,
   });
 
   @override

@@ -135,20 +135,13 @@ class BackBar extends StatelessWidget implements PreferredSizeWidget {
               children: [
                 GestureDetector(
                   onTap: () => context.pop(),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.arrow_back_rounded,
-                          size: 14, color: AppColors.gold),
-                      const SizedBox(width: 6),
-                      Text('BACK',
-                          style: AppTextStyles.mono(
-                            size: 9,
-                            color: AppColors.gold,
-                            letterSpacing: 0.25,
-                            weight: FontWeight.w700,
-                          )),
-                    ],
-                  ),
+                  child: Text('BACK',
+                      style: AppTextStyles.mono(
+                        size: 9,
+                        color: AppColors.gold,
+                        letterSpacing: 0.25,
+                        weight: FontWeight.w700,
+                      )),
                 ),
                 const Spacer(),
                 ...?actions,

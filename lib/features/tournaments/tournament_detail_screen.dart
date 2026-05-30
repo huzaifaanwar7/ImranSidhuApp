@@ -7,6 +7,7 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_top_bar.dart';
 import '../../core/widgets/match_card.dart';
 import '../../core/widgets/team_badge.dart';
+import '../../data/api_client.dart';
 import '../../data/mock_data.dart';
 import '../../models/enums.dart';
 import '../../models/player.dart';
@@ -53,7 +54,6 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen>
 
     final fixtures = MockData.matchesForTournament(tournament.id)
       ..sort((a, b) => a.scheduledStart.compareTo(b.scheduledStart));
-    final standings = MockData.standingsForTournament(tournament.id);
     final players = MockData.players
         .where((player) =>
             player.teamId != null && tournament.teamIds.contains(player.teamId))
@@ -86,9 +86,9 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen>
                 controller: _tab,
                 children: [
                   _Overview(tournament: tournament, players: players),
-                  _Table(standings: standings),
-                  _Fixtures(matches: fixtures),
-                  _TopStats(players: players),
+                  _BackendTable(tournamentId: tournament.id),
+                  _Fixtures(matches: fixtures, tournamentId: tournament.id),
+                  _TopStats(tournamentId: tournament.id, players: players),
                 ],
               ),
             ),
@@ -126,8 +126,9 @@ class _Header extends StatelessWidget {
               children: [
                 GestureDetector(
                   onTap: () => context.pop(),
-                  child: const Icon(Icons.arrow_back_rounded,
-                      size: 18, color: AppColors.cream),
+                  child: Text('BACK',
+                      style: AppTextStyles.mono(
+                          size: 9, color: AppColors.gold, letterSpacing: 0.25, weight: FontWeight.w700)),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -137,11 +138,13 @@ class _Header extends StatelessWidget {
                         size: 9, color: AppColors.gold, letterSpacing: 0.3),
                   ),
                 ),
-                IconButton(
-                  onPressed: () =>
-                      context.push('/tournament/${tournament.id}/edit'),
-                  icon: const Icon(Icons.edit_outlined, color: AppColors.cream),
-                ),
+                if (ApiClient.instance.canManageTournaments)
+                  IconButton(
+                    onPressed: () =>
+                        context.push('/tournament/${tournament.id}/edit'),
+                    icon:
+                        const Icon(Icons.edit_outlined, color: AppColors.cream),
+                  ),
               ],
             ),
             Column(
@@ -322,180 +325,451 @@ class _Overview extends StatelessWidget {
   }
 }
 
-class _Table extends StatelessWidget {
-  final List<Standing> standings;
+/// Live standings + NRR fetched from backend.
+class _BackendTable extends StatefulWidget {
+  final String tournamentId;
+  const _BackendTable({required this.tournamentId});
+  @override
+  State<_BackendTable> createState() => _BackendTableState();
+}
 
-  const _Table({required this.standings});
+class _BackendTableState extends State<_BackendTable> {
+  bool _loading = false;
+  List<Map<String, dynamic>> _rows = [];
+
+  @override
+  void initState() { super.initState(); _load(); }
+
+  Future<void> _load() async {
+    final id = int.tryParse(widget.tournamentId);
+    if (id == null) return;
+    setState(() => _loading = true);
+    try {
+      final res = await ApiClient.instance.get('/api/tournaments/$id/standings');
+      _rows = List<Map<String, dynamic>>.from(res as List);
+    } catch (_) {/* keep last */}
+    finally { if (mounted) setState(() => _loading = false); }
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (standings.isEmpty) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_rows.isEmpty) {
       return const _EmptyPanel(
         icon: Icons.table_chart_outlined,
         title: 'No table yet',
-        message: 'Attach teams to the tournament to build the standings table.',
+        message: 'Add teams to the tournament and play matches to populate standings.',
       );
     }
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 100),
-      children: [
-        _card(
-          child: Column(
-            children: [
-              _row(['#', 'TEAM', 'P', 'W', 'L', 'PTS'], isHeader: true),
-              for (var i = 0; i < standings.length; i++)
-                _row([
-                  '${i + 1}',
-                  MockData.teamById(standings[i].teamId).name,
-                  '${standings[i].matchesPlayed}',
-                  '${standings[i].wins}',
-                  '${standings[i].losses}',
-                  '${standings[i].points}',
-                ], teamId: standings[i].teamId),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _row(List<String> cells, {bool isHeader = false, String? teamId}) {
-    final style = isHeader
-        ? AppTextStyles.caption
-        : AppTextStyles.mono(size: 10, color: AppColors.ink);
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppColors.line))),
-      child: Row(
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 100),
         children: [
-          SizedBox(width: 24, child: Text(cells[0], style: style)),
-          Expanded(
-            child: Row(
-              children: [
-                if (teamId != null) ...[
-                  TeamBadge(team: MockData.teamById(teamId), size: 22),
-                  const SizedBox(width: 8),
-                ],
-                Expanded(
-                  child: Text(
-                    cells[1],
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: isHeader
-                        ? AppTextStyles.caption
-                        : AppTextStyles.dm(size: 11, weight: FontWeight.w600),
-                  ),
-                ),
-              ],
-            ),
+          _card(child: Column(children: [
+            _header(),
+            for (var i = 0; i < _rows.length; i++) _dataRow(i, _rows[i]),
+          ])),
+          const SizedBox(height: 8),
+          Text(
+            'P=Played, W/L/T/NR=Wins/Losses/Ties/No-Result, PTS=Points, NRR=Net Run Rate',
+            style: AppTextStyles.italicAccent(size: 10, color: AppColors.grey),
           ),
-          for (final cell in cells.skip(2))
-            SizedBox(
-                width: 34,
-                child: Text(cell, textAlign: TextAlign.end, style: style)),
         ],
       ),
     );
   }
-}
 
-class _Fixtures extends StatelessWidget {
-  final List matches;
-
-  const _Fixtures({required this.matches});
-
-  @override
-  Widget build(BuildContext context) {
-    if (matches.isEmpty) {
-      return const _EmptyPanel(
-        icon: Icons.sports_cricket_outlined,
-        title: 'No fixtures yet',
-        message: 'Create matches and assign this tournament.',
-      );
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 100),
-      itemCount: matches.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (_, i) => MatchCard(match: matches[i]),
+  Widget _header() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+      decoration: BoxDecoration(
+        color: AppColors.navyDeep.withValues(alpha: 0.06),
+        border: const Border(bottom: BorderSide(color: AppColors.line)),
+      ),
+      child: Row(
+        children: [
+          SizedBox(width: 22, child: Text('#', style: AppTextStyles.caption)),
+          Expanded(child: Text('TEAM', style: AppTextStyles.caption)),
+          _hCell('P'), _hCell('W'), _hCell('L'), _hCell('T'), _hCell('NR'),
+          _hCell('PTS'), _hCell('NRR', width: 50),
+        ],
+      ),
     );
   }
+
+  Widget _hCell(String s, {double width = 24}) =>
+      SizedBox(width: width, child: Text(s, textAlign: TextAlign.center, style: AppTextStyles.caption));
+
+  Widget _dataRow(int i, Map<String, dynamic> r) {
+    final team = r['team'] is Map ? Map<String, dynamic>.from(r['team'] as Map) : null;
+    final teamName = (team?['name'] as String?) ?? 'Team ${r['teamId']}';
+    final form = (r['last5Form'] as List?)?.cast<String>() ?? const [];
+    final nrr = r['netRunRate'];
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.line))),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              SizedBox(width: 22, child: Text('${i + 1}',
+                  style: AppTextStyles.fraunces(size: 13, weight: FontWeight.w800,
+                      color: i == 0 ? AppColors.goldDeep : AppColors.navyDeep))),
+              Expanded(
+                child: Text(teamName,
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.dm(size: 12, weight: FontWeight.w700)),
+              ),
+              _vCell('${r['matchesPlayed']}'),
+              _vCell('${r['wins']}'),
+              _vCell('${r['losses']}'),
+              _vCell('${r['ties']}'),
+              _vCell('${r['noResults']}'),
+              _vCell('${r['points']}', bold: true),
+              SizedBox(width: 50, child: Text(
+                nrr == null ? '-' : (nrr as num).toStringAsFixed(3),
+                textAlign: TextAlign.center,
+                style: AppTextStyles.mono(size: 10, color: AppColors.ink),
+              )),
+            ],
+          ),
+          if (form.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 22),
+              child: Row(
+                children: [
+                  Text('FORM', style: AppTextStyles.mono(size: 8, color: AppColors.grey, letterSpacing: 0.2)),
+                  const SizedBox(width: 6),
+                  for (final f in form) ...[
+                    Container(
+                      width: 16, height: 16,
+                      margin: const EdgeInsets.only(right: 4),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: switch (f) {
+                          'W' => AppColors.amasGreen,
+                          'L' => AppColors.ballRed,
+                          _ => AppColors.grey,
+                        }.withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(f,
+                          style: AppTextStyles.mono(size: 8, color: Colors.white, weight: FontWeight.w800)),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _vCell(String s, {bool bold = false, double width = 24}) =>
+      SizedBox(width: width, child: Text(
+        s, textAlign: TextAlign.center,
+        style: bold
+            ? AppTextStyles.fraunces(size: 12, weight: FontWeight.w900, color: AppColors.navyDeep)
+            : AppTextStyles.mono(size: 10, color: AppColors.ink),
+      ));
 }
 
-class _TopStats extends StatelessWidget {
-  final List<Player> players;
+class _Fixtures extends StatefulWidget {
+  final List matches;
+  final String tournamentId;
+  const _Fixtures({required this.matches, required this.tournamentId});
 
-  const _TopStats({required this.players});
+  @override
+  State<_Fixtures> createState() => _FixturesState();
+}
+
+class _FixturesState extends State<_Fixtures> {
+  bool _generating = false;
+
+  Future<void> _generate() async {
+    final id = int.tryParse(widget.tournamentId);
+    if (id == null) return;
+    final clearExisting = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Generate Fixtures'),
+        content: const Text(
+            'This will create fixtures based on the tournament format (round-robin / knockout / hybrid). '
+            'Clear existing scheduled matches first?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('KEEP EXISTING')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('CLEAR & REGEN')),
+        ],
+      ),
+    );
+    if (clearExisting == null) return;
+    setState(() => _generating = true);
+    try {
+      final res = await ApiClient.instance.post('/api/tournaments/$id/generate-fixtures', {
+        'clearExisting': clearExisting,
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('${res['created']} fixtures created'),
+        ));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => _generating = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (players.isEmpty) {
-      return const _EmptyPanel(
-        icon: Icons.bar_chart_rounded,
-        title: 'No player stats yet',
-        message: 'Add players to tournament teams and enter career statistics.',
-      );
-    }
-    final runs = [...players]..sort((a, b) => b.runs.compareTo(a.runs));
-    final wickets = [...players]
-      ..sort((a, b) => b.wickets.compareTo(a.wickets));
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 100),
+    final canGenerate = ApiClient.instance.isSuperAdmin || ApiClient.instance.isScorer;
+    return Column(
       children: [
-        Text('Most Runs', style: AppTextStyles.titleLarge),
-        const SizedBox(height: 8),
-        _LeaderList(
-            players: runs, value: (player) => '${player.runs}', label: 'RUNS'),
-        const SizedBox(height: 18),
-        Text('Most Wickets', style: AppTextStyles.titleLarge),
-        const SizedBox(height: 8),
-        _LeaderList(
-            players: wickets,
-            value: (player) => '${player.wickets}',
-            label: 'WKTS'),
+        if (canGenerate)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _generating ? null : _generate,
+                icon: const Icon(Icons.auto_awesome_rounded, size: 16),
+                label: Text(_generating ? 'GENERATING...' : 'AUTO-GENERATE FIXTURES'),
+              ),
+            ),
+          ),
+        Expanded(
+          child: widget.matches.isEmpty
+              ? const _EmptyPanel(
+                  icon: Icons.sports_cricket_outlined,
+                  title: 'No fixtures yet',
+                  message: 'Tap "Auto-generate" above to create round-robin / knockout fixtures based on tournament format.',
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 100),
+                  itemCount: widget.matches.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (_, i) => MatchCard(match: widget.matches[i]),
+                ),
+        ),
       ],
     );
   }
 }
 
-class _LeaderList extends StatelessWidget {
+class _TopStats extends StatefulWidget {
+  final String tournamentId;
   final List<Player> players;
-  final String Function(Player) value;
-  final String label;
+  const _TopStats({required this.tournamentId, required this.players});
 
-  const _LeaderList(
-      {required this.players, required this.value, required this.label});
+  @override
+  State<_TopStats> createState() => _TopStatsState();
+}
+
+class _TopStatsState extends State<_TopStats> {
+  Map<String, dynamic>? _data;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final id = int.tryParse(widget.tournamentId);
+    if (id == null) return;
+    setState(() => _loading = true);
+    try {
+      final res = await ApiClient.instance.get('/api/tournaments/$id/leaders', query: {'top': 10});
+      _data = Map<String, dynamic>.from(res as Map);
+    } catch (_) {/* keep null */}
+    finally { if (mounted) setState(() => _loading = false); }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return _card(
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    final d = _data;
+    if (d == null) {
+      return const _EmptyPanel(
+        icon: Icons.bar_chart_rounded,
+        title: 'No stats yet',
+        message: 'Play matches in this tournament to populate leaders.',
+      );
+    }
+    final totals = d['totals'] is Map ? Map<String, dynamic>.from(d['totals'] as Map) : <String, dynamic>{};
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 100),
+        children: [
+          _totalsBar(totals),
+          const SizedBox(height: 14),
+          if ((d['runScorers'] as List).isNotEmpty) ...[
+            Text('Most Runs', style: AppTextStyles.titleLarge),
+            const SizedBox(height: 8),
+            _leaderRows(d['runScorers'] as List, (m) => '${m['runs']}', 'RUNS',
+                trailingExtra: (m) => 'HS ${m['highestScore']} · ${m['innings']} inns'),
+            const SizedBox(height: 18),
+          ],
+          if ((d['wicketTakers'] as List).isNotEmpty) ...[
+            Text('Most Wickets', style: AppTextStyles.titleLarge),
+            const SizedBox(height: 8),
+            _leaderRows(d['wicketTakers'] as List, (m) => '${m['wickets']}', 'WKTS',
+                trailingExtra: (m) => 'Econ ${(m['economy'] as num).toStringAsFixed(2)}'),
+            const SizedBox(height: 18),
+          ],
+          if ((d['sixHitters'] as List).isNotEmpty) ...[
+            Text('Most Sixes', style: AppTextStyles.titleLarge),
+            const SizedBox(height: 8),
+            _leaderRows(d['sixHitters'] as List, (m) => '${m['sixes']}', 'SIXES'),
+            const SizedBox(height: 18),
+          ],
+          if ((d['fourHitters'] as List).isNotEmpty) ...[
+            Text('Most Fours', style: AppTextStyles.titleLarge),
+            const SizedBox(height: 8),
+            _leaderRows(d['fourHitters'] as List, (m) => '${m['fours']}', 'FOURS'),
+            const SizedBox(height: 18),
+          ],
+          if ((d['bestInnings'] as List).isNotEmpty) ...[
+            Text('Best Individual Score', style: AppTextStyles.titleLarge),
+            const SizedBox(height: 8),
+            _innFigures(d['bestInnings'] as List, isBowling: false),
+            const SizedBox(height: 18),
+          ],
+          if ((d['bestBowling'] as List).isNotEmpty) ...[
+            Text('Best Bowling', style: AppTextStyles.titleLarge),
+            const SizedBox(height: 8),
+            _innFigures(d['bestBowling'] as List, isBowling: true),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _totalsBar(Map<String, dynamic> totals) {
+    Widget cell(String n, String l) => Expanded(
+          child: Column(
+            children: [
+              Text(n, style: AppTextStyles.fraunces(size: 18, weight: FontWeight.w900, color: AppColors.navyDeep)),
+              const SizedBox(height: 2),
+              Text(l, style: AppTextStyles.mono(size: 8, color: AppColors.grey, letterSpacing: 0.18)),
+            ],
+          ),
+        );
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: Row(children: [
+        cell('${totals['matches'] ?? 0}', 'MATCHES'),
+        cell('${totals['runs'] ?? 0}', 'RUNS'),
+        cell('${totals['wickets'] ?? 0}', 'WICKETS'),
+        cell('${totals['sixes'] ?? 0}', 'SIXES'),
+        cell('${totals['fours'] ?? 0}', 'FOURS'),
+      ]),
+    );
+  }
+
+  Widget _leaderRows(
+    List rows,
+    String Function(Map<String, dynamic>) value,
+    String label, {
+    String Function(Map<String, dynamic>)? trailingExtra,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.line),
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
         children: [
-          for (var i = 0; i < players.take(5).length; i++)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Text('${i + 1}',
-                  style: AppTextStyles.fraunces(
-                      size: 16, weight: FontWeight.w900)),
-              title: Text(players[i].fullName,
-                  style: AppTextStyles.fraunces(
-                      size: 13, weight: FontWeight.w700)),
-              subtitle: Text(players[i].role.label,
-                  style: AppTextStyles.mono(size: 8)),
-              trailing: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
+          for (var i = 0; i < rows.length; i++)
+            _leaderRow(i, Map<String, dynamic>.from(rows[i] as Map), value, label, trailingExtra),
+        ],
+      ),
+    );
+  }
+
+  Widget _leaderRow(int i, Map<String, dynamic> r, String Function(Map<String, dynamic>) value, String label,
+      String Function(Map<String, dynamic>)? trailingExtra) {
+    final p = r['player'] is Map ? Map<String, dynamic>.from(r['player'] as Map) : null;
+    final fullName = (p?['fullName'] as String?) ?? 'Player ${r['playerId']}';
+    return InkWell(
+      onTap: () {
+        final pid = p?['id'];
+        if (pid != null) context.push('/player/$pid');
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        child: Row(
+          children: [
+            SizedBox(width: 20, child: Text('${i + 1}', style: AppTextStyles.fraunces(size: 14, weight: FontWeight.w900))),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(value(players[i]),
-                      style: AppTextStyles.fraunces(
-                          size: 16, weight: FontWeight.w900)),
-                  Text(label, style: AppTextStyles.caption),
+                  Text(fullName, style: AppTextStyles.fraunces(size: 13, weight: FontWeight.w700)),
+                  if (p?['role'] != null)
+                    Text((p!['role'] as String).toUpperCase(),
+                        style: AppTextStyles.mono(size: 8, color: AppColors.grey, letterSpacing: 0.18)),
                 ],
               ),
-              onTap: () => context.push('/player/${players[i].id}'),
             ),
-        ],
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(value(r), style: AppTextStyles.fraunces(size: 16, weight: FontWeight.w900, color: AppColors.navyDeep)),
+                Text(label, style: AppTextStyles.mono(size: 8, color: AppColors.grey, letterSpacing: 0.18)),
+                if (trailingExtra != null)
+                  Text(trailingExtra(r), style: AppTextStyles.italicAccent(size: 10, color: AppColors.grey)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _innFigures(List rows, {required bool isBowling}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.line),
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        children: rows.map<Widget>((raw) {
+          final r = Map<String, dynamic>.from(raw as Map);
+          final p = r['player'] is Map ? Map<String, dynamic>.from(r['player'] as Map) : null;
+          final name = (p?['fullName'] as String?) ?? '—';
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            child: Row(
+              children: [
+                Expanded(child: Text(name, style: AppTextStyles.fraunces(size: 13, weight: FontWeight.w700))),
+                if (isBowling) ...[
+                  Text(r['figures'] as String,
+                      style: AppTextStyles.fraunces(size: 14, weight: FontWeight.w900, color: AppColors.navyDeep)),
+                  const SizedBox(width: 6),
+                  Text('(${r['overs']})', style: AppTextStyles.mono(size: 9, color: AppColors.grey)),
+                ] else ...[
+                  Text('${r['runs']}',
+                      style: AppTextStyles.fraunces(size: 14, weight: FontWeight.w900, color: AppColors.navyDeep)),
+                  const SizedBox(width: 6),
+                  Text('(${r['ballsFaced']}b)', style: AppTextStyles.mono(size: 9, color: AppColors.grey)),
+                ],
+              ],
+            ),
+          );
+        }).toList(),
       ),
     );
   }

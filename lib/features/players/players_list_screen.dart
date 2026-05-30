@@ -3,8 +3,10 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_top_bar.dart';
+import '../../data/api_client.dart';
 import '../../data/mock_data.dart';
 import '../../models/enums.dart';
+import '../../models/player.dart';
 
 class PlayersListScreen extends StatefulWidget {
   const PlayersListScreen({super.key});
@@ -33,13 +35,14 @@ class _PlayersListScreenState extends State<PlayersListScreen> {
         child: Column(
           children: [
             AppTopBar(actions: [
-              IconBtn(
-                icon: Icons.add_rounded,
-                onTap: () async {
-                  await context.push('/player/new');
-                  if (mounted) setState(() {});
-                },
-              ),
+              if (ApiClient.instance.canManagePlayers)
+                IconBtn(
+                  icon: Icons.add_rounded,
+                  onTap: () async {
+                    await context.push('/player/new');
+                    if (mounted) setState(() {});
+                  },
+                ),
             ]),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 18),
@@ -130,9 +133,8 @@ class _PlayersListScreenState extends State<PlayersListScreen> {
                                         color: AppColors.gold, width: 2),
                                   ),
                                   alignment: Alignment.center,
-                                  child: Text(p.initials,
-                                      style: AppTextStyles.bebas(
-                                          size: 14, color: Colors.white)),
+                                  clipBehavior: Clip.antiAlias,
+                                  child: _photo(p, 44),
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
@@ -180,6 +182,20 @@ class _PlayersListScreenState extends State<PlayersListScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _photo(Player p, double size) {
+    final url = ApiClient.imageUrl(p.photoUrl);
+    final initials = Text(p.initials,
+        style: AppTextStyles.bebas(size: size * 0.32, color: Colors.white));
+    if (url == null) return initials;
+    return Image.network(
+      url,
+      width: size,
+      height: size,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => Center(child: initials),
     );
   }
 
@@ -235,7 +251,7 @@ class _EmptyPlayers extends StatelessWidget {
               style:
                   AppTextStyles.italicAccent(size: 13, color: AppColors.grey),
             ),
-            if (!hasFilter) ...[
+            if (!hasFilter && ApiClient.instance.canManagePlayers) ...[
               const SizedBox(height: 14),
               ElevatedButton.icon(
                 onPressed: () => context.push('/player/new'),

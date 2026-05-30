@@ -3,8 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 
-/// 4-tab bottom nav matching the App Design v2.0 prototype:
-/// Home · Teams · Tourneys · Profile (Matches accessed from Home).
+/// 5-tab bottom nav: Home · Teams · Players · Tourneys · Profile.
 class HomeShell extends StatelessWidget {
   final Widget child;
   const HomeShell({super.key, required this.child});
@@ -12,9 +11,11 @@ class HomeShell extends StatelessWidget {
   static const _tabs = [
     _Tab('/home', Icons.home_rounded, Icons.home_outlined, 'Home'),
     _Tab('/teams', Icons.groups_rounded, Icons.groups_outlined, 'Teams'),
+    _Tab('/players', Icons.person_rounded, Icons.person_outline, 'Players'),
     _Tab('/tournaments', Icons.emoji_events_rounded,
         Icons.emoji_events_outlined, 'Tourneys'),
-    _Tab('/profile', Icons.person_rounded, Icons.person_outline, 'Profile'),
+    _Tab('/profile', Icons.account_circle_rounded,
+        Icons.account_circle_outlined, 'Profile'),
   ];
 
   int _indexOf(String location) {

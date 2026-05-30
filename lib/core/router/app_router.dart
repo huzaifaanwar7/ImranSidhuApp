@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../data/api_client.dart';
+import '../../features/rankings/rankings_screen.dart';
+
 import '../../features/auth/forgot_password_screen.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/otp_verification_screen.dart';
@@ -29,9 +32,37 @@ import '../../features/teams/teams_list_screen.dart';
 import '../../features/tournaments/add_tournament_screen.dart';
 import '../../features/tournaments/tournament_detail_screen.dart';
 import '../../features/tournaments/tournaments_list_screen.dart';
+import '../../features/admin/approvals_screen.dart';
+import '../../features/admin/users_admin_screen.dart';
+
+/// Blocks direct navigation to create/edit/admin/scoring routes for users who
+/// lack the role. Viewers can still open all read-only (view) routes.
+String? _guard(BuildContext context, GoRouterState state) {
+  final api = ApiClient.instance;
+  final loc = state.uri.path;
+  bool blocked = false;
+  if (loc == '/team/new' || RegExp(r'^/team/[^/]+/edit$').hasMatch(loc)) {
+    blocked = !api.canManageTeams;
+  } else if (loc == '/tournament/new' ||
+      RegExp(r'^/tournament/[^/]+/edit$').hasMatch(loc)) {
+    blocked = !api.canManageTournaments;
+  } else if (loc == '/player/new' ||
+      RegExp(r'^/player/[^/]+/edit$').hasMatch(loc)) {
+    blocked = !api.canManagePlayers;
+  } else if (loc == '/match/new' ||
+      loc.startsWith('/match/new/') ||
+      RegExp(r'^/match/[^/]+/score$').hasMatch(loc)) {
+    blocked = !api.canManageMatches;
+  } else if (loc.startsWith('/admin/')) {
+    blocked = !api.isSuperAdmin;
+  }
+  if (blocked) return api.isAuthed ? '/home' : '/login';
+  return null;
+}
 
 final GoRouter appRouter = GoRouter(
   initialLocation: '/',
+  redirect: _guard,
   routes: [
     GoRoute(path: '/', builder: (_, __) => const SplashScreen()),
     GoRoute(path: '/onboarding', builder: (_, __) => const OnboardingScreen()),
@@ -50,6 +81,8 @@ final GoRouter appRouter = GoRouter(
         GoRoute(path: '/home', builder: (_, __) => const DashboardScreen()),
         GoRoute(path: '/teams', builder: (_, __) => const TeamsListScreen()),
         GoRoute(
+            path: '/players', builder: (_, __) => const PlayersListScreen()),
+        GoRoute(
             path: '/tournaments',
             builder: (_, __) => const TournamentsListScreen()),
         GoRoute(path: '/profile', builder: (_, __) => const ProfileScreen()),
@@ -63,8 +96,12 @@ final GoRouter appRouter = GoRouter(
         builder: (_, __) => const NotificationsScreen()),
     GoRoute(path: '/sponsors', builder: (_, __) => const SponsorsScreen()),
     GoRoute(path: '/stats', builder: (_, __) => const StatisticsHubScreen()),
+    GoRoute(path: '/rankings', builder: (_, __) => const RankingsScreen()),
     GoRoute(path: '/matches', builder: (_, __) => const MatchesListScreen()),
-    GoRoute(path: '/players', builder: (_, __) => const PlayersListScreen()),
+
+    // SuperAdmin
+    GoRoute(path: '/admin/users', builder: (_, __) => const UsersAdminScreen()),
+    GoRoute(path: '/admin/approvals', builder: (_, __) => const ApprovalsScreen()),
 
     GoRoute(
       path: '/team/new',

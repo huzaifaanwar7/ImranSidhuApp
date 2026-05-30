@@ -158,6 +158,21 @@ class AppStore extends ChangeNotifier {
       });
   }
 
+  /// Replace the entire in-memory cache with fresh data from the backend.
+  /// Used by [BackendSync] after login and on refresh.
+  Future<void> replaceAll({
+    List<Team>? teams,
+    List<Player>? players,
+    List<Tournament>? tournaments,
+    List<CricketMatch>? matches,
+  }) async {
+    if (teams != null) { _teams..clear()..addAll(teams); }
+    if (players != null) { _players..clear()..addAll(players); }
+    if (tournaments != null) { _tournaments..clear()..addAll(tournaments); }
+    if (matches != null) { _matches..clear()..addAll(matches); }
+    await _save();
+  }
+
   Future<void> saveTeam(Team team) async {
     final index = _teams.indexWhere((item) => item.id == team.id);
     if (index == -1) {

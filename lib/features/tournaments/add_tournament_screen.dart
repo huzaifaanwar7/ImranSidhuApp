@@ -7,6 +7,8 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_top_bar.dart';
 import '../../core/widgets/primary_button.dart';
 import '../../core/widgets/team_badge.dart';
+import '../../data/api_client.dart';
+import '../../data/backend_sync.dart';
 import '../../data/mock_data.dart';
 import '../../models/enums.dart';
 import '../../models/tournament.dart';
@@ -102,10 +104,32 @@ class _AddTournamentScreenState extends State<AddTournamentScreen> {
       totalWickets: _int(_totalWickets.text),
       totalSixes: _int(_totalSixes.text),
     );
-    await MockData.saveTournament(tournament);
-    if (!mounted) return;
-    setState(() => _saving = false);
-    context.pop();
+    try {
+      final saved = await BackendSync.instance.upsertTournament(tournament);
+      // Attach selected teams to the tournament
+      final tid = int.tryParse(saved.id);
+      if (tid != null) {
+        for (final localTeamId in _teamIds) {
+          final teamIdInt = int.tryParse(localTeamId);
+          if (teamIdInt == null) continue;
+          try {
+            await ApiClient.instance.post('/api/tournaments/$tid/teams', {
+              'teamId': teamIdInt,
+            });
+          } catch (_) {/* ignore conflicts */}
+        }
+      }
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_isEdit ? 'Tournament updated.' : 'Tournament created.'),
+      ));
+      context.pop();
+    } on ApiException catch (e) {
+      if (mounted) { setState(() => _saving = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
+    } catch (e) {
+      if (mounted) { setState(() => _saving = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $e'))); }
+    }
   }
 
   Future<void> _delete() async {
@@ -128,8 +152,12 @@ class _AddTournamentScreenState extends State<AddTournamentScreen> {
       ),
     );
     if (confirmed != true || widget.tournamentId == null) return;
-    await MockData.deleteTournament(widget.tournamentId!);
-    if (mounted) context.go('/tournaments');
+    try {
+      await BackendSync.instance.deleteTournament(widget.tournamentId!);
+      if (mounted) context.go('/tournaments');
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
   }
 
   Future<void> _pickDate({required bool start}) async {

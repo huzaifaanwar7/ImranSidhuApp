@@ -9,6 +9,7 @@ import '../../core/widgets/match_card.dart';
 import '../../core/widgets/section_header.dart';
 import '../../core/widgets/sponsor_banner.dart';
 import '../../core/widgets/team_badge.dart';
+import '../../data/api_client.dart';
 import '../../data/mock_data.dart';
 import '../../models/enums.dart';
 
@@ -17,7 +18,11 @@ class DashboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const user = MockData.currentUser;
+    final api = ApiClient.instance;
+    final apiUser = api.currentUser;
+    final isAuthed = api.isAuthed;
+    final fullName = (apiUser?['fullName'] as String?) ?? 'Guest viewer';
+    final roleLabel = isAuthed ? api.role : 'Viewer';
     final hour = DateTime.now().hour;
     final greeting = hour < 12
         ? 'Good morning,'
@@ -35,11 +40,28 @@ class DashboardScreen extends StatelessWidget {
           padding: EdgeInsets.zero,
           children: [
             AppTopBar(actions: [
-              IconBtn(
-                icon: Icons.notifications_none_rounded,
-                dot: true,
-                onTap: () => context.push('/notifications'),
-              ),
+              if (!isAuthed)
+                GestureDetector(
+                  onTap: () => context.push('/login'),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: AppColors.ballRed,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text('SIGN IN',
+                        style: AppTextStyles.bebas(
+                            size: 12, color: Colors.white, letterSpacing: 0.15)),
+                  ),
+                ),
+              if (isAuthed) ...[
+                IconBtn(
+                  icon: Icons.notifications_none_rounded,
+                  dot: true,
+                  onTap: () => context.push('/notifications'),
+                ),
+              ] else
+                const SizedBox(width: 8),
             ]),
             // Hero
             Container(
@@ -68,12 +90,14 @@ class DashboardScreen extends StatelessWidget {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(greeting,
+                      Text(isAuthed ? greeting : 'Welcome,',
                           style: AppTextStyles.italicAccent(
                               size: 13,
                               color: AppColors.cream.withValues(alpha: 0.65))),
                       const SizedBox(height: 2),
-                      Text('Captain ${user.fullName.split(' ').first}',
+                      Text(isAuthed
+                              ? '$roleLabel · ${fullName.split(' ').first}'
+                              : 'Browse live cricket',
                           style: AppTextStyles.fraunces(
                               size: 22,
                               weight: FontWeight.w700,
@@ -95,26 +119,32 @@ class DashboardScreen extends StatelessWidget {
             const SizedBox(height: 6),
 
             // Quick actions
-            const Padding(
-              padding: EdgeInsets.fromLTRB(18, 12, 18, 4),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 4),
               child: Row(
                 children: [
-                  _QA(
-                      icon: Icons.add_rounded,
-                      label: 'New Match',
-                      color: AppColors.ballRed,
-                      route: '/match/new'),
-                  _QA(
+                  if (api.canManageMatches)
+                    const _QA(
+                        icon: Icons.add_rounded,
+                        label: 'New Match',
+                        color: AppColors.ballRed,
+                        route: '/match/new'),
+                  const _QA(
                       icon: Icons.groups_rounded,
                       label: 'Teams',
                       color: AppColors.navy,
                       route: '/teams'),
-                  _QA(
+                  const _QA(
                       icon: Icons.emoji_events_outlined,
                       label: 'Tourneys',
                       color: AppColors.gold,
                       route: '/tournaments'),
-                  _QA(
+                  const _QA(
+                      icon: Icons.leaderboard_rounded,
+                      label: 'Rankings',
+                      color: AppColors.goldDeep,
+                      route: '/rankings'),
+                  const _QA(
                       icon: Icons.bar_chart_rounded,
                       label: 'Stats',
                       color: AppColors.ink,
@@ -122,6 +152,15 @@ class DashboardScreen extends StatelessWidget {
                 ],
               ),
             ),
+
+            // Management shortcuts — role-gated (hidden from viewers/fans)
+            if (_ManageGrid.hasAny(api)) ...[
+              const SectionHeader(title: 'Quick', italicAccent: 'Manage'),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(18, 0, 18, 6),
+                child: _ManageGrid(),
+              ),
+            ],
 
             const SizedBox(height: 8),
             const SponsorBanner(slot: SponsorSlot.dashboard),
@@ -189,6 +228,8 @@ class _HomeSetupCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final api = ApiClient.instance;
+    final canSetup = api.canManageTeams || api.canManageMatches;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
@@ -201,7 +242,7 @@ class _HomeSetupCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Set up your cricket data',
+            canSetup ? 'Set up your cricket data' : 'No live match right now',
             style: AppTextStyles.fraunces(
               size: 16,
               weight: FontWeight.w800,
@@ -210,28 +251,35 @@ class _HomeSetupCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Create teams, add players, then schedule a match. The newest match will live here.',
+            canSetup
+                ? 'Create teams, add players, then schedule a match. The newest match will live here.'
+                : 'Live and upcoming matches will appear here. Browse teams, tournaments and stats below.',
             style: AppTextStyles.italicAccent(
               size: 12,
               color: AppColors.cream.withValues(alpha: 0.72),
             ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              ElevatedButton.icon(
-                onPressed: () => context.push('/team/new'),
-                icon: const Icon(Icons.add_rounded),
-                label: const Text('Team'),
-              ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
-                onPressed: () => context.push('/match/new'),
-                icon: const Icon(Icons.sports_cricket_rounded),
-                label: const Text('Match'),
-              ),
-            ],
-          ),
+          if (canSetup) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                if (api.canManageTeams)
+                  ElevatedButton.icon(
+                    onPressed: () => context.push('/team/new'),
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('Team'),
+                  ),
+                if (api.canManageTeams && api.canManageMatches)
+                  const SizedBox(width: 8),
+                if (api.canManageMatches)
+                  OutlinedButton.icon(
+                    onPressed: () => context.push('/match/new'),
+                    icon: const Icon(Icons.sports_cricket_rounded),
+                    label: const Text('Match'),
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -388,6 +436,95 @@ class _LiveMatchCard extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+/// Role-gated management shortcuts shown on Home for admins/scorers/captains.
+class _ManageGrid extends StatelessWidget {
+  const _ManageGrid();
+
+  static bool hasAny(ApiClient api) =>
+      api.isSuperAdmin ||
+      api.canManageTeams ||
+      api.canManageTournaments ||
+      api.canManageMatches ||
+      api.canManagePlayers;
+
+  @override
+  Widget build(BuildContext context) {
+    final api = ApiClient.instance;
+    final tiles = <Widget>[
+      if (api.isSuperAdmin)
+        const _ManageTile(Icons.manage_accounts_rounded, 'Users',
+            '/admin/users', AppColors.navy),
+      if (api.isSuperAdmin)
+        const _ManageTile(Icons.verified_user_rounded, 'Approvals',
+            '/admin/approvals', AppColors.amasGreen),
+      if (api.canManageTeams)
+        const _ManageTile(
+            Icons.groups_rounded, 'New Team', '/team/new', AppColors.navyDeep),
+      if (api.canManageTournaments)
+        const _ManageTile(Icons.emoji_events_rounded, 'Tournament',
+            '/tournament/new', AppColors.goldDeep),
+      if (api.canManageMatches)
+        const _ManageTile(Icons.sports_cricket_rounded, 'New Match',
+            '/match/new', AppColors.ballRed),
+      if (api.canManagePlayers)
+        const _ManageTile(Icons.person_add_alt_1_rounded, 'Add Player',
+            '/player/new', AppColors.ink),
+      const _ManageTile(Icons.workspace_premium_rounded, 'Sponsors',
+          '/sponsors', AppColors.gold),
+    ];
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: tiles,
+    );
+  }
+}
+
+class _ManageTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String route;
+  final Color color;
+  const _ManageTile(this.icon, this.label, this.route, this.color);
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => context.push(route),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.line),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              alignment: Alignment.center,
+              child: Icon(icon, color: Colors.white, size: 15),
+            ),
+            const SizedBox(width: 8),
+            Text(label,
+                style: AppTextStyles.dm(
+                    size: 11,
+                    weight: FontWeight.w600,
+                    color: AppColors.navyDeep)),
+          ],
+        ),
+      ),
     );
   }
 }

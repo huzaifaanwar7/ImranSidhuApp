@@ -4,6 +4,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_top_bar.dart';
 import '../../core/widgets/match_card.dart';
+import '../../data/api_client.dart';
 import '../../data/mock_data.dart';
 
 class MatchesListScreen extends StatefulWidget {
@@ -78,14 +79,16 @@ class _MatchesListScreenState extends State<MatchesListScreen>
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: AppColors.ballRed,
-        foregroundColor: Colors.white,
-        onPressed: () => context.push('/match/new'),
-        icon: const Icon(Icons.add_rounded),
-        label: Text('NEW MATCH',
-            style: AppTextStyles.bebas(size: 14, color: Colors.white)),
-      ),
+      floatingActionButton: ApiClient.instance.canManageMatches
+          ? FloatingActionButton.extended(
+              backgroundColor: AppColors.ballRed,
+              foregroundColor: Colors.white,
+              onPressed: () => context.push('/match/new'),
+              icon: const Icon(Icons.add_rounded),
+              label: Text('NEW MATCH',
+                  style: AppTextStyles.bebas(size: 14, color: Colors.white)),
+            )
+          : null,
     );
   }
 

@@ -4,6 +4,8 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_top_bar.dart';
 import '../../core/widgets/primary_button.dart';
+import '../../data/api_client.dart';
+import '../../data/auth_service.dart';
 import '../../models/enums.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -18,9 +20,65 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _email = TextEditingController();
   final _phone = TextEditingController();
   final _pass = TextEditingController();
+  final _username = TextEditingController();
   bool _obscure = true;
   bool _agreed = false;
+  bool _loading = false;
   UserRole _role = UserRole.fan;
+
+  String _roleString(UserRole r) => switch (r) {
+        UserRole.fan => 'Fan',
+        UserRole.player => 'Player',
+        UserRole.captain => 'Captain',
+        UserRole.scorer => 'Scorer',
+        UserRole.organizer => 'Scorer', // organizer maps to Scorer in backend roles
+        UserRole.admin => 'Fan',
+      };
+
+  Future<void> _submit() async {
+    if (!_agreed) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please agree to the Terms')));
+      return;
+    }
+    if (_username.text.isEmpty || _pass.text.isEmpty || _name.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Username, name and password are required')));
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      final res = await AuthService.instance.register(
+        username: _username.text.trim(),
+        password: _pass.text,
+        fullName: _name.text.trim(),
+        email: _email.text.trim().isEmpty ? null : _email.text.trim(),
+        phone: _phone.text.trim().isEmpty ? null : _phone.text.trim(),
+        role: _roleString(_role),
+      );
+      if (!mounted) return;
+      if (res['approvalStatus'] == 'Pending') {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Awaiting approval'),
+            content: const Text('Your captain account has been submitted. SuperAdmin will approve it shortly. You can sign in once approved.'),
+            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+          ),
+        );
+        if (!mounted) return;
+        context.go('/login');
+      } else {
+        context.go('/home');
+      }
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Registration failed: $e')));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -28,6 +86,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _email.dispose();
     _phone.dispose();
     _pass.dispose();
+    _username.dispose();
     super.dispose();
   }
 
@@ -46,6 +105,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     style: AppTextStyles.italicAccent(
                         size: 13, color: AppColors.grey)),
                 const SizedBox(height: 20),
+                _label('USERNAME'),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: _username,
+                  decoration: const InputDecoration(hintText: 'choose a username'),
+                  style: AppTextStyles.fraunces(size: 14, weight: FontWeight.w600),
+                ),
+                const SizedBox(height: 14),
                 _label('FULL NAME'),
                 const SizedBox(height: 6),
                 TextField(
@@ -150,8 +217,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 18),
                 PrimaryButton(
-                  label: 'Continue',
-                  onPressed: () => context.push('/verify-otp'),
+                  label: 'Create Account',
+                  loading: _loading,
+                  onPressed: _submit,
                 ),
               ],
             ),

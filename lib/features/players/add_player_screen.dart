@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -5,6 +7,9 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_top_bar.dart';
 import '../../core/widgets/primary_button.dart';
+import '../../data/api_client.dart';
+import '../../data/backend_sync.dart';
+import '../../data/image_picker_helper.dart';
 import '../../data/mock_data.dart';
 import '../../models/enums.dart';
 import '../../models/player.dart';
@@ -42,6 +47,8 @@ class _AddPlayerScreenState extends State<AddPlayerScreen> {
   BattingHand _battingHand = BattingHand.right;
   BowlingStyle? _bowlingStyle;
   String? _teamId;
+  String? _photoBase64;
+  String? _existingPhotoUrl;
   bool _retired = false;
   bool _saving = false;
 
@@ -74,9 +81,15 @@ class _AddPlayerScreenState extends State<AddPlayerScreen> {
       _bowlingStyle = player.bowlingStyle;
       _teamId = player.teamId;
       _retired = player.retired;
+      _existingPhotoUrl = player.photoUrl;
     } else {
       _teamId = widget.teamId;
     }
+  }
+
+  Future<void> _pickPhoto() async {
+    final b64 = await ImagePickerHelper.pickAsBase64();
+    if (b64 != null) setState(() => _photoBase64 = b64);
   }
 
   @override
@@ -135,10 +148,19 @@ class _AddPlayerScreenState extends State<AddPlayerScreen> {
       economy: _double(_economy.text),
       catches: _int(_catches.text),
     );
-    await MockData.savePlayer(player);
-    if (!mounted) return;
-    setState(() => _saving = false);
-    context.pop();
+    try {
+      await BackendSync.instance.upsertPlayer(player, photoBase64: _photoBase64);
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_isEdit ? 'Player updated.' : 'Player submitted — pending approval.'),
+      ));
+      context.pop();
+    } on ApiException catch (e) {
+      if (mounted) { setState(() => _saving = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
+    } catch (e) {
+      if (mounted) { setState(() => _saving = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $e'))); }
+    }
   }
 
   Future<void> _delete() async {
@@ -161,8 +183,12 @@ class _AddPlayerScreenState extends State<AddPlayerScreen> {
       ),
     );
     if (confirmed != true || widget.playerId == null) return;
-    await MockData.deletePlayer(widget.playerId!);
-    if (mounted) context.go('/players');
+    try {
+      await BackendSync.instance.deletePlayer(widget.playerId!);
+      if (mounted) context.go('/players');
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
   }
 
   void _showMessage(String text) {
@@ -201,21 +227,48 @@ class _AddPlayerScreenState extends State<AddPlayerScreen> {
               padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
               children: [
                 Center(
-                  child: Container(
-                    width: 88,
-                    height: 88,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFF57F17), Color(0xFFE65100)],
+                  child: Column(
+                    children: [
+                      GestureDetector(
+                        onTap: _pickPhoto,
+                        child: Container(
+                          width: 96, height: 96,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFF57F17), Color(0xFFE65100)],
+                            ),
+                            border: Border.all(color: AppColors.gold, width: 2),
+                          ),
+                          alignment: Alignment.center,
+                          clipBehavior: Clip.antiAlias,
+                          child: _photoBase64 != null
+                              ? Image.memory(
+                                  base64Decode(_photoBase64!.split(',').last),
+                                  width: 96, height: 96, fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => const Icon(
+                                      Icons.person, color: Colors.white, size: 40),
+                                )
+                              : (_existingPhotoUrl != null && _existingPhotoUrl!.isNotEmpty
+                                  ? Image.network(
+                                      ApiClient.imageUrl(_existingPhotoUrl)!,
+                                      width: 96, height: 96, fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => const Icon(
+                                          Icons.person, color: Colors.white, size: 40),
+                                    )
+                                  : Text(
+                                      _name.text.trim().isEmpty ? '?' : _initials(_name.text),
+                                      style: AppTextStyles.bebas(size: 30, color: Colors.white),
+                                    )),
+                        ),
                       ),
-                      border: Border.all(color: AppColors.gold, width: 2),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      _name.text.trim().isEmpty ? '?' : _initials(_name.text),
-                      style: AppTextStyles.bebas(size: 30, color: Colors.white),
-                    ),
+                      const SizedBox(height: 6),
+                      TextButton.icon(
+                        onPressed: _pickPhoto,
+                        icon: const Icon(Icons.image_outlined, size: 14),
+                        label: Text(_photoBase64 != null ? 'PHOTO SELECTED' : 'PICK PHOTO'),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 18),

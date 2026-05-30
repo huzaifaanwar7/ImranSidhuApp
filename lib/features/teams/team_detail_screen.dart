@@ -6,6 +6,7 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_top_bar.dart';
 import '../../core/widgets/match_card.dart';
 import '../../core/widgets/team_badge.dart';
+import '../../data/api_client.dart';
 import '../../data/mock_data.dart';
 import '../../models/enums.dart';
 import '../../models/player.dart';
@@ -110,14 +111,17 @@ class _Header extends StatelessWidget {
             children: [
               GestureDetector(
                 onTap: () => context.pop(),
-                child: const Icon(Icons.arrow_back_rounded,
-                    size: 18, color: AppColors.cream),
+                child: Text('BACK',
+                    style: AppTextStyles.mono(
+                        size: 9, color: AppColors.gold, letterSpacing: 0.25, weight: FontWeight.w700)),
               ),
               const Spacer(),
-              IconButton(
-                onPressed: () => context.push('/team/${team.id}/edit'),
-                icon: const Icon(Icons.edit_outlined, color: AppColors.cream),
-              ),
+              if (ApiClient.instance.canManageTeams)
+                IconButton(
+                  onPressed: () => context.push('/team/${team.id}/edit'),
+                  icon:
+                      const Icon(Icons.edit_outlined, color: AppColors.cream),
+                ),
             ],
           ),
           Row(
@@ -280,27 +284,30 @@ class _Squad extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final canAdd = ApiClient.instance.canManagePlayers;
     if (players.isEmpty) {
       return _EmptyPanel(
         icon: Icons.person_add_alt_1_outlined,
         title: 'No players yet',
         message: 'Add players to build this team squad.',
-        action: 'Add player',
-        onAction: () => context.push('/player/new?teamId=${team.id}'),
+        action: canAdd ? 'Add player' : null,
+        onAction:
+            canAdd ? () => context.push('/player/new?teamId=${team.id}') : null,
       );
     }
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 14, 18, 100),
       children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: OutlinedButton.icon(
-            onPressed: () => context.push('/player/new?teamId=${team.id}'),
-            icon: const Icon(Icons.add_rounded),
-            label: const Text('Add player'),
+        if (canAdd)
+          Align(
+            alignment: Alignment.centerRight,
+            child: OutlinedButton.icon(
+              onPressed: () => context.push('/player/new?teamId=${team.id}'),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Add player'),
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
+        if (canAdd) const SizedBox(height: 8),
         for (final player in players)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),

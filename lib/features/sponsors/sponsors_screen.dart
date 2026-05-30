@@ -1,276 +1,203 @@
 import 'package:flutter/material.dart';
-
-import '../../core/constants/app_assets.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_top_bar.dart';
-import '../../data/mock_data.dart';
-import '../../models/enums.dart';
+import '../../data/api_client.dart';
 
-class SponsorsScreen extends StatelessWidget {
+class SponsorsScreen extends StatefulWidget {
   const SponsorsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final sponsors = MockData.sponsors;
+  State<SponsorsScreen> createState() => _SponsorsScreenState();
+}
 
-    return Scaffold(
-      backgroundColor: AppColors.cream,
-      body: Column(
-        children: [
-          const BackBar(title: 'Our', italic: 'Sponsors'),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
+class _SponsorsScreenState extends State<SponsorsScreen> {
+  bool _loading = false;
+  List<Map<String, dynamic>> _items = [];
+
+  static const _slots = [
+    'Splash', 'Dashboard', 'Scorecard', 'Commentary', 'OverCard', 'Kit', 'MatchPresentedBy',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final res = await ApiClient.instance.get('/api/sponsors');
+      _items = List<Map<String, dynamic>>.from(res as List);
+    } catch (_) {/* */}
+    finally { if (mounted) setState(() => _loading = false); }
+  }
+
+  Future<void> _addOrEdit({Map<String, dynamic>? existing}) async {
+    final nameCtl = TextEditingController(text: existing?['name'] ?? '');
+    final tagCtl = TextEditingController(text: existing?['tagline'] ?? '');
+    final webCtl = TextEditingController(text: existing?['websiteUrl'] ?? '');
+    final phoneCtl = TextEditingController(text: existing?['contactPhone'] ?? '');
+    final selected = ((existing?['slots'] as String?) ?? '').split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toSet();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+          title: Text(existing == null ? 'Add sponsor' : 'Edit sponsor'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                const _SponsorFeatureCard(
-                  category: 'TITLE SPONSOR',
-                  name: 'Amas',
-                  tagline: 'Feel The Difference',
-                  description:
-                      'Premium quality apparel and lifestyle brand, title partner of the Imran Sidhu Memorial VCC.',
-                  imageAsset: AppAssets.amasLogo,
-                  imageHeight: 92,
+                TextField(controller: nameCtl, decoration: const InputDecoration(labelText: 'Name')),
+                TextField(controller: tagCtl, decoration: const InputDecoration(labelText: 'Tagline')),
+                TextField(controller: webCtl, decoration: const InputDecoration(labelText: 'Website URL')),
+                TextField(controller: phoneCtl, decoration: const InputDecoration(labelText: 'Contact phone')),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Slots', style: AppTextStyles.mono(size: 9, color: AppColors.grey, letterSpacing: 0.2)),
                 ),
-                const SizedBox(height: 14),
-                const _SponsorFeatureCard(
-                  category: 'KIT SPONSOR',
-                  name: 'PM Sports Hosiery',
-                  tagline: 'Sublimation Shirt Maker',
-                  description:
-                      'Custom sublimation kits and team apparel for all participating squads.',
-                  imageAsset: AppAssets.pmSportsLogo,
-                  imageHeight: 118,
-                  phone: '0307-7590838',
+                Wrap(
+                  spacing: 6, runSpacing: 6,
+                  children: _slots.map((s) => FilterChip(
+                    label: Text(s),
+                    selected: selected.contains(s),
+                    onSelected: (v) => setS(() {
+                      if (v) { selected.add(s); } else { selected.remove(s); }
+                    }),
+                  )).toList(),
                 ),
-                const SizedBox(height: 18),
-                Text(
-                  'SLOT ASSIGNMENTS',
-                  style: AppTextStyles.mono(
-                    size: 9,
-                    color: AppColors.grey,
-                    letterSpacing: 0.2,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                for (final s in sponsors)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppColors.line),
-                    ),
-                    child: Row(
-                      children: [
-                        _SponsorThumb(path: s.logoUrl, name: s.name),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                s.name,
-                                style: AppTextStyles.fraunces(
-                                  size: 13,
-                                  weight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 5),
-                              Wrap(
-                                spacing: 4,
-                                runSpacing: 4,
-                                children: s.slots
-                                    .map(
-                                      (slot) => Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 7,
-                                          vertical: 2,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.gold
-                                              .withValues(alpha: 0.15),
-                                          borderRadius:
-                                              BorderRadius.circular(20),
-                                        ),
-                                        child: Text(
-                                          slot.label.toUpperCase(),
-                                          style: AppTextStyles.mono(
-                                            size: 8,
-                                            color: AppColors.goldDeep,
-                                            letterSpacing: 0.15,
-                                          ),
-                                        ),
-                                      ),
-                                    )
-                                    .toList(),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Switch(
-                          value: s.isActive,
-                          onChanged: (_) {},
-                          activeThumbColor: AppColors.navyDeep,
-                        ),
-                      ],
-                    ),
-                  ),
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SponsorFeatureCard extends StatelessWidget {
-  final String category;
-  final String name;
-  final String tagline;
-  final String description;
-  final String imageAsset;
-  final double imageHeight;
-  final String? phone;
-
-  const _SponsorFeatureCard({
-    required this.category,
-    required this.name,
-    required this.tagline,
-    required this.description,
-    required this.imageAsset,
-    required this.imageHeight,
-    this.phone,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFBF8EE), Colors.white],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.gold.withValues(alpha: 0.4)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: Container(
-              height: imageHeight,
-              constraints: const BoxConstraints(maxWidth: 260),
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.line),
-              ),
-              child: Image.asset(
-                imageAsset,
-                fit: BoxFit.contain,
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            category,
-            style: AppTextStyles.mono(
-              size: 9,
-              color: AppColors.goldDeep,
-              letterSpacing: 0.25,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            name,
-            style: AppTextStyles.fraunces(
-              size: 22,
-              weight: FontWeight.w700,
-              color: AppColors.navyDeep,
-            ),
-          ),
-          Text(
-            tagline,
-            style: AppTextStyles.italicAccent(
-              size: 13,
-              color: AppColors.ballRed,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            description,
-            style: AppTextStyles.fraunces(
-              size: 12,
-              weight: FontWeight.w400,
-              color: AppColors.grey,
-            ),
-          ),
-          if (phone != null) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppColors.navyDeep,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.phone_in_talk_rounded,
-                    color: AppColors.gold,
-                    size: 12,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    phone!,
-                    style: AppTextStyles.mono(
-                      size: 9,
-                      color: AppColors.gold,
-                      letterSpacing: 0.15,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('CANCEL')),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('SAVE')),
           ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+    final body = {
+      'name': nameCtl.text,
+      'tagline': tagCtl.text,
+      'websiteUrl': webCtl.text,
+      'contactPhone': phoneCtl.text,
+      'slots': selected.join(','),
+      'isActive': true,
+    };
+    try {
+      if (existing == null) {
+        await ApiClient.instance.post('/api/sponsors', body);
+      } else {
+        await ApiClient.instance.put('/api/sponsors/${existing['id']}', body);
+      }
+      await _load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
+  Future<void> _delete(int id) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete sponsor?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('CANCEL')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('DELETE')),
         ],
       ),
     );
+    if (ok != true) return;
+    try {
+      await ApiClient.instance.delete('/api/sponsors/$id');
+      _load();
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'))); }
   }
-}
-
-class _SponsorThumb extends StatelessWidget {
-  final String? path;
-  final String name;
-
-  const _SponsorThumb({required this.path, required this.name});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 52,
-      height: 52,
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.line),
-      ),
-      child: path == null
-          ? Center(
-              child: Text(
-                name.substring(0, 1),
-                style: AppTextStyles.bebas(size: 18, color: AppColors.navy),
-              ),
+    final canEdit = ApiClient.instance.isSuperAdmin;
+    return Scaffold(
+      backgroundColor: AppColors.cream,
+      floatingActionButton: canEdit
+          ? FloatingActionButton(
+              backgroundColor: AppColors.ballRed,
+              onPressed: () => _addOrEdit(),
+              child: const Icon(Icons.add, color: Colors.white),
             )
-          : Image.asset(path!, fit: BoxFit.contain),
+          : null,
+      body: Column(
+        children: [
+          const BackBar(title: 'Sponsors', italic: ' '),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _items.isEmpty
+                    ? Center(
+                        child: Text('No sponsors yet.',
+                            style: AppTextStyles.italicAccent(size: 14, color: AppColors.grey)),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _load,
+                        child: ListView.separated(
+                          padding: const EdgeInsets.all(14),
+                          itemCount: _items.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          itemBuilder: (_, i) {
+                            final s = _items[i];
+                            return Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: AppColors.line),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 40, height: 40,
+                                    decoration: BoxDecoration(
+                                      color: AppColors.navyDeep.withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: const Icon(Icons.workspace_premium_rounded, color: AppColors.gold),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(s['name'] as String? ?? '',
+                                            style: AppTextStyles.fraunces(size: 14, weight: FontWeight.w700)),
+                                        if ((s['tagline'] as String?)?.isNotEmpty == true)
+                                          Text(s['tagline'] as String,
+                                              style: AppTextStyles.italicAccent(size: 11, color: AppColors.grey)),
+                                        if ((s['slots'] as String?)?.isNotEmpty == true)
+                                          Padding(
+                                            padding: const EdgeInsets.only(top: 4),
+                                            child: Text((s['slots'] as String).toUpperCase(),
+                                                style: AppTextStyles.mono(size: 8, color: AppColors.goldDeep, letterSpacing: 0.18)),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (canEdit) ...[
+                                    IconButton(icon: const Icon(Icons.edit_outlined, size: 18), onPressed: () => _addOrEdit(existing: s)),
+                                    IconButton(icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.ballRed), onPressed: () => _delete(s['id'] as int)),
+                                  ],
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+          ),
+        ],
+      ),
     );
   }
 }
