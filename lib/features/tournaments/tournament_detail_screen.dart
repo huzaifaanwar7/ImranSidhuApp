@@ -361,15 +361,20 @@ class _BackendTableState extends State<_BackendTable> {
         message: 'Add teams to the tournament and play matches to populate standings.',
       );
     }
+    // Group by pool when the tournament uses pools (GroupName present).
+    final pooled = _rows.any((r) => (r['groupName'] as String?)?.isNotEmpty == true);
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 100),
         children: [
-          _card(child: Column(children: [
-            _header(),
-            for (var i = 0; i < _rows.length; i++) _dataRow(i, _rows[i]),
-          ])),
+          if (!pooled)
+            _card(child: Column(children: [
+              _header(),
+              for (var i = 0; i < _rows.length; i++) _dataRow(i, _rows[i]),
+            ]))
+          else
+            ..._poolCards(),
           const SizedBox(height: 8),
           Text(
             'P=Played, W/L/T/NR=Wins/Losses/Ties/No-Result, PTS=Points, NRR=Net Run Rate',
@@ -378,6 +383,35 @@ class _BackendTableState extends State<_BackendTable> {
         ],
       ),
     );
+  }
+
+  List<Widget> _poolCards() {
+    final pools = <String, List<Map<String, dynamic>>>{};
+    for (final r in _rows) {
+      final g = (r['groupName'] as String?)?.isNotEmpty == true
+          ? r['groupName'] as String
+          : 'Unassigned';
+      pools.putIfAbsent(g, () => []).add(r);
+    }
+    final keys = pools.keys.toList()..sort();
+    return [
+      for (final pool in keys) ...[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 10, 4, 6),
+          child: Text(pool.toUpperCase(),
+              style: AppTextStyles.mono(
+                  size: 10,
+                  color: AppColors.navyDeep,
+                  letterSpacing: 0.3,
+                  weight: FontWeight.w700)),
+        ),
+        _card(child: Column(children: [
+          _header(),
+          for (var i = 0; i < pools[pool]!.length; i++)
+            _dataRow(i, pools[pool]![i]),
+        ])),
+      ],
+    ];
   }
 
   Widget _header() {
@@ -487,6 +521,17 @@ class _Fixtures extends StatefulWidget {
 class _FixturesState extends State<_Fixtures> {
   bool _generating = false;
 
+  Future<void> _createKnockout() async {
+    final id = int.tryParse(widget.tournamentId);
+    if (id == null) return;
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _KnockoutSheet(tournamentId: id),
+    );
+  }
+
   Future<void> _generate() async {
     final id = int.tryParse(widget.tournamentId);
     if (id == null) return;
@@ -529,13 +574,25 @@ class _FixturesState extends State<_Fixtures> {
         if (canGenerate)
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _generating ? null : _generate,
-                icon: const Icon(Icons.auto_awesome_rounded, size: 16),
-                label: Text(_generating ? 'GENERATING...' : 'AUTO-GENERATE FIXTURES'),
-              ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _generating ? null : _generate,
+                    icon: const Icon(Icons.auto_awesome_rounded, size: 16),
+                    label: Text(
+                        _generating ? 'GENERATING...' : 'AUTO-GENERATE'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _createKnockout,
+                    icon: const Icon(Icons.emoji_events_outlined, size: 16),
+                    label: const Text('KNOCKOUT'),
+                  ),
+                ),
+              ],
             ),
           ),
         Expanded(
@@ -553,6 +610,188 @@ class _FixturesState extends State<_Fixtures> {
                 ),
         ),
       ],
+    );
+  }
+}
+
+/// Build a single knockout fixture by choosing two teams from the pool
+/// qualifiers (top-N per pool). Used for Quarter-Finals / Semis / Final.
+class _KnockoutSheet extends StatefulWidget {
+  final int tournamentId;
+  const _KnockoutSheet({required this.tournamentId});
+
+  @override
+  State<_KnockoutSheet> createState() => _KnockoutSheetState();
+}
+
+class _KnockoutSheetState extends State<_KnockoutSheet> {
+  final _stage = TextEditingController(text: 'Quarter-Final 1');
+  final _perPool = TextEditingController(text: '2');
+  List<Map<String, dynamic>> _qualifiers = [];
+  String? _homeId;
+  String? _awayId;
+  bool _loading = false;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _stage.dispose();
+    _perPool.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final n = int.tryParse(_perPool.text.trim()) ?? 2;
+      final res = await ApiClient.instance.get(
+          '/api/tournaments/${widget.tournamentId}/qualifiers',
+          query: {'perPool': n});
+      _qualifiers = List<Map<String, dynamic>>.from(
+          (res as List).map((e) => Map<String, dynamic>.from(e as Map)));
+    } catch (_) {
+      _qualifiers = [];
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  String _labelFor(Map<String, dynamic> q) {
+    final team = q['team'] is Map ? Map<String, dynamic>.from(q['team'] as Map) : null;
+    final name = (team?['name'] as String?) ?? 'Team ${q['teamId']}';
+    return '${q['seedLabel'] ?? q['pool']} · $name';
+  }
+
+  Future<void> _create() async {
+    if (_homeId == null || _awayId == null || _homeId == _awayId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Pick two different teams.')));
+      return;
+    }
+    setState(() => _saving = true);
+    final t = MockData.tournamentOrNull('${widget.tournamentId}');
+    try {
+      await ApiClient.instance.post('/api/matches', {
+        'tournamentId': widget.tournamentId,
+        'matchName': _stage.text.trim().isEmpty ? 'Knockout' : _stage.text.trim(),
+        'homeTeamId': int.tryParse(_homeId!),
+        'awayTeamId': int.tryParse(_awayId!),
+        'scheduledStart': DateTime.now().add(const Duration(days: 1)).toIso8601String(),
+        'matchFormat': t?.matchFormat.label ?? 'T20',
+        'oversPerInnings': t?.oversPerInnings ?? 20,
+        'stageLabel': _stage.text.trim(),
+      });
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('${_stage.text.trim()} created. Reopen tournament to see it.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+          18, 18, 18, MediaQuery.of(context).viewInsets.bottom + 18),
+      decoration: const BoxDecoration(
+        color: AppColors.cream,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Create Knockout Fixture', style: AppTextStyles.headlineMedium),
+          const SizedBox(height: 4),
+          Text('Pick any two teams from the pool qualifiers.',
+              style: AppTextStyles.italicAccent(size: 12, color: AppColors.grey)),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: TextField(
+                  controller: _stage,
+                  decoration: const InputDecoration(labelText: 'STAGE LABEL'),
+                  style: AppTextStyles.fraunces(size: 13, weight: FontWeight.w600),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _perPool,
+                  keyboardType: TextInputType.number,
+                  onSubmitted: (_) => _load(),
+                  decoration: const InputDecoration(labelText: 'QUALIFY/POOL'),
+                  style: AppTextStyles.fraunces(size: 13, weight: FontWeight.w600),
+                ),
+              ),
+              IconButton(
+                onPressed: _loading ? null : _load,
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.all(20),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_qualifiers.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Text(
+                'No qualifiers yet. Finish enough pool matches so standings can rank teams.',
+                style: AppTextStyles.italicAccent(size: 13, color: AppColors.grey),
+              ),
+            )
+          else ...[
+            _teamDrop('HOME', _homeId, (v) => setState(() => _homeId = v)),
+            const SizedBox(height: 10),
+            _teamDrop('AWAY', _awayId, (v) => setState(() => _awayId = v)),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _saving ? null : _create,
+                child: Text(_saving ? 'CREATING...' : 'CREATE FIXTURE'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _teamDrop(String label, String? value, ValueChanged<String?> onChanged) {
+    return DropdownButtonFormField<String>(
+      initialValue: value,
+      isExpanded: true,
+      decoration: InputDecoration(labelText: label),
+      items: _qualifiers.map((q) {
+        final id = '${q['teamId']}';
+        return DropdownMenuItem<String>(
+          value: id,
+          child: Text(_labelFor(q),
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.fraunces(size: 13, weight: FontWeight.w600)),
+        );
+      }).toList(),
+      onChanged: onChanged,
     );
   }
 }

@@ -99,7 +99,7 @@ extension TournamentFormatX on TournamentFormat {
   String get label => switch (this) {
         TournamentFormat.roundRobin => 'Round Robin',
         TournamentFormat.knockout => 'Knockout',
-        TournamentFormat.hybrid => 'Hybrid',
+        TournamentFormat.hybrid => 'Pools + Knockout',
       };
 }
 

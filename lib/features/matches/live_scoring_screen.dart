@@ -306,6 +306,10 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
   }
 
   void _recordRun(int runs) {
+    final m = MockData.matchById(widget.matchId);
+    final maxBalls = m.oversPerInnings * 6;
+    // Hard stop: never let an innings exceed its overs or 10 wickets.
+    if (legalBalls >= maxBalls || wickets >= 10) return;
     HapticFeedback.lightImpact();
     _snapshot();
     final bool wasWide = wideToggle, wasNoBall = noBallToggle;
@@ -363,10 +367,9 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
       _pushBall(runsBatter: runs);
     }
     // Check innings/match end AFTER state update so values are current.
-    final m = MockData.matchById(widget.matchId);
     if (_isChasing && target > 0 && totalRuns >= target) {
       _finishMatch();
-    } else if (overEnded && overNumber > m.oversPerInnings) {
+    } else if (legalBalls >= maxBalls) {
       _handleInningsEnd('OversComplete');
     } else if (overEnded) {
       _showOverEndSheet();
@@ -374,6 +377,9 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
   }
 
   void _wicketSheet() async {
+    final m = MockData.matchById(widget.matchId);
+    final maxBalls = m.oversPerInnings * 6;
+    if (legalBalls >= maxBalls || wickets >= 10) return; // innings complete
     final r = await showModalBottomSheet<WicketType>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -403,12 +409,11 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
         }
       });
       _pushBall(runsBatter: 0, isWicket: true, wicketType: r.label.replaceAll(' ', ''));
-      final m = MockData.matchById(widget.matchId);
       if (_isChasing && target > 0 && totalRuns >= target) {
         _finishMatch();
       } else if (wickets >= 10) {
         _handleInningsEnd('AllOut');
-      } else if (overEnded && overNumber > m.oversPerInnings) {
+      } else if (legalBalls >= maxBalls) {
         _handleInningsEnd('OversComplete');
       } else if (overEnded) {
         _showOverEndSheet();

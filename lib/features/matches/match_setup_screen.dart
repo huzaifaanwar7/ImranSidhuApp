@@ -201,8 +201,19 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
                               : tournaments
                                   .firstWhere((item) => item.id == value)
                                   .name,
-                          (value) => setState(() =>
-                              _tournamentId = value.isEmpty ? null : value),
+                          (value) => setState(() {
+                            _tournamentId = value.isEmpty ? null : value;
+                            // Inherit overs + format from the tournament so a
+                            // 10-over tournament match doesn't stay at 20.
+                            if (_tournamentId != null) {
+                              final t =
+                                  MockData.tournamentOrNull(_tournamentId);
+                              if (t != null) {
+                                _format = t.matchFormat;
+                                _overs.text = t.oversPerInnings.toString();
+                              }
+                            }
+                          }),
                         ),
                         const SizedBox(height: 18),
                       ],

@@ -30,6 +30,10 @@ class _AddTournamentScreenState extends State<AddTournamentScreen> {
   final _totalRuns = TextEditingController(text: '0');
   final _totalWickets = TextEditingController(text: '0');
   final _totalSixes = TextEditingController(text: '0');
+  // Pools config (only used when format == hybrid / Pools + Knockout).
+  final _totalTeams = TextEditingController(text: '16');
+  final _poolsCount = TextEditingController(text: '4');
+  final _qualifiersPerPool = TextEditingController(text: '2');
 
   TeamCategory _category = TeamCategory.senior;
   TournamentFormat _format = TournamentFormat.roundRobin;
@@ -38,7 +42,20 @@ class _AddTournamentScreenState extends State<AddTournamentScreen> {
   DateTime _startDate = DateTime.now();
   DateTime _endDate = DateTime.now().add(const Duration(days: 7));
   final Set<String> _teamIds = {};
+  // teamId -> assigned pool label (e.g. "Pool A").
+  final Map<String, String> _poolOf = {};
   bool _saving = false;
+
+  bool get _isPools => _format == TournamentFormat.hybrid;
+
+  // Pool count is set directly so pools can be uneven (e.g. 18 teams = 5/5/4/4).
+  int get _poolCount {
+    final n = int.tryParse(_poolsCount.text.trim()) ?? 0;
+    return n < 0 ? 0 : n;
+  }
+
+  List<String> get _poolLabels =>
+      List.generate(_poolCount, (i) => 'Pool ${String.fromCharCode(65 + i)}');
 
   bool get _isEdit => widget.tournamentId != null;
 
@@ -61,7 +78,35 @@ class _AddTournamentScreenState extends State<AddTournamentScreen> {
       _startDate = tournament.startDate;
       _endDate = tournament.endDate;
       _teamIds.addAll(tournament.teamIds);
+      _loadGroups();
     }
+  }
+
+  // Pull persisted pool (GroupName) assignments for edit mode.
+  Future<void> _loadGroups() async {
+    final id = int.tryParse(widget.tournamentId ?? '');
+    if (id == null) return;
+    try {
+      final res = await ApiClient.instance.get('/api/tournaments/$id');
+      final teams = (res['teams'] as List?) ?? const [];
+      var maxPool = 0;
+      for (final raw in teams) {
+        final t = Map<String, dynamic>.from(raw as Map);
+        final tid = '${t['id']}';
+        final group = t['groupName'] as String?;
+        if (group != null && group.isNotEmpty) {
+          _poolOf[tid] = group;
+          final idx = group.codeUnitAt(group.length - 1) - 65;
+          if (idx + 1 > maxPool) maxPool = idx + 1;
+        }
+      }
+      if (mounted && maxPool > 0) {
+        setState(() {
+          _poolsCount.text = maxPool.toString();
+          _totalTeams.text = teams.length.toString();
+        });
+      }
+    } catch (_) {/* best effort */}
   }
 
   @override
@@ -73,6 +118,9 @@ class _AddTournamentScreenState extends State<AddTournamentScreen> {
     _totalRuns.dispose();
     _totalWickets.dispose();
     _totalSixes.dispose();
+    _totalTeams.dispose();
+    _poolsCount.dispose();
+    _qualifiersPerPool.dispose();
     super.dispose();
   }
 
@@ -81,6 +129,14 @@ class _AddTournamentScreenState extends State<AddTournamentScreen> {
     if (name.isEmpty) {
       _showMessage('Tournament name is required.');
       return;
+    }
+    if (_isPools) {
+      final unassigned =
+          _teamIds.where((id) => (_poolOf[id] ?? '').isEmpty).toList();
+      if (unassigned.isNotEmpty) {
+        _showMessage('Assign every selected team to a pool first.');
+        return;
+      }
     }
     setState(() => _saving = true);
     final existing = MockData.tournamentOrNull(widget.tournamentId);
@@ -112,11 +168,22 @@ class _AddTournamentScreenState extends State<AddTournamentScreen> {
         for (final localTeamId in _teamIds) {
           final teamIdInt = int.tryParse(localTeamId);
           if (teamIdInt == null) continue;
+          final group = _isPools ? _poolOf[localTeamId] : null;
           try {
             await ApiClient.instance.post('/api/tournaments/$tid/teams', {
               'teamId': teamIdInt,
+              if (group != null) 'groupName': group,
             });
-          } catch (_) {/* ignore conflicts */}
+          } catch (_) {/* already attached — update group below */}
+          // Ensure the pool assignment is saved even for already-attached teams.
+          if (group != null) {
+            try {
+              await ApiClient.instance
+                  .put('/api/tournaments/$tid/teams/$teamIdInt/group', {
+                'groupName': group,
+              });
+            } catch (_) {/* ignore */}
+          }
         }
       }
       if (!mounted) return;
@@ -255,6 +322,31 @@ class _AddTournamentScreenState extends State<AddTournamentScreen> {
                   (value) => setState(() => _format = value),
                 ),
                 const SizedBox(height: 12),
+                if (_isPools) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                          child: _field('TOTAL TEAMS', _totalTeams,
+                              keyboard: TextInputType.number)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                          child: _field('POOLS', _poolsCount,
+                              keyboard: TextInputType.number,
+                              onChanged: (_) => setState(() {}))),
+                      const SizedBox(width: 8),
+                      Expanded(
+                          child: _field('QUALIFY / POOL', _qualifiersPerPool,
+                              keyboard: TextInputType.number)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '$_poolCount pools · top ${_qualifiersPerPool.text} from each advance · pools can be uneven (e.g. 5/5/4/4)',
+                    style: AppTextStyles.italicAccent(
+                        size: 11, color: AppColors.grey),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 _dropdown<TournamentStage>(
                   'CURRENT STAGE',
                   _stage,
@@ -279,28 +371,37 @@ class _AddTournamentScreenState extends State<AddTournamentScreen> {
                   _emptyBox(
                       'Create teams first, then attach them to this tournament.')
                 else
-                  ...teams.map((team) => CheckboxListTile(
-                        value: _teamIds.contains(team.id),
-                        onChanged: (checked) => setState(() {
-                          if (checked == true) {
-                            _teamIds.add(team.id);
-                          } else {
-                            _teamIds.remove(team.id);
-                          }
-                        }),
-                        controlAffinity: ListTileControlAffinity.trailing,
-                        secondary: TeamBadge(team: team, size: 34),
-                        title: Text(
-                          team.name,
-                          style: AppTextStyles.fraunces(
-                              size: 13, weight: FontWeight.w700),
+                  ...teams.map((team) {
+                    final selected = _teamIds.contains(team.id);
+                    return Column(
+                      children: [
+                        CheckboxListTile(
+                          value: selected,
+                          onChanged: (checked) => setState(() {
+                            if (checked == true) {
+                              _teamIds.add(team.id);
+                            } else {
+                              _teamIds.remove(team.id);
+                              _poolOf.remove(team.id);
+                            }
+                          }),
+                          controlAffinity: ListTileControlAffinity.trailing,
+                          secondary: TeamBadge(team: team, size: 34),
+                          title: Text(
+                            team.name,
+                            style: AppTextStyles.fraunces(
+                                size: 13, weight: FontWeight.w700),
+                          ),
+                          subtitle: Text(
+                            team.category.label.toUpperCase(),
+                            style:
+                                AppTextStyles.mono(size: 8, letterSpacing: 0.18),
+                          ),
                         ),
-                        subtitle: Text(
-                          team.category.label.toUpperCase(),
-                          style:
-                              AppTextStyles.mono(size: 8, letterSpacing: 0.18),
-                        ),
-                      )),
+                        if (_isPools && selected) _poolPicker(team.id),
+                      ],
+                    );
+                  }),
                 const SizedBox(height: 16),
                 _section('TOURNAMENT STATISTICS'),
                 Row(
@@ -385,6 +486,7 @@ class _AddTournamentScreenState extends State<AddTournamentScreen> {
     String label,
     TextEditingController controller, {
     TextInputType? keyboard,
+    ValueChanged<String>? onChanged,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -394,6 +496,7 @@ class _AddTournamentScreenState extends State<AddTournamentScreen> {
         TextField(
           controller: controller,
           keyboardType: keyboard,
+          onChanged: onChanged,
           style: AppTextStyles.fraunces(size: 13, weight: FontWeight.w600),
           cursorColor: AppColors.navy,
           decoration: const InputDecoration(),
@@ -429,6 +532,55 @@ class _AddTournamentScreenState extends State<AddTournamentScreen> {
           },
         ),
       ],
+    );
+  }
+
+  // Per-team pool selector shown under a selected team when format = Pools.
+  Widget _poolPicker(String teamId) {
+    final labels = _poolLabels;
+    if (labels.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+        child: Text('Set total teams & teams/pool above.',
+            style: AppTextStyles.italicAccent(size: 11, color: AppColors.grey)),
+      );
+    }
+    final current = _poolOf[teamId];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          for (final label in labels)
+            GestureDetector(
+              onTap: () => setState(() => _poolOf[teamId] = label),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: current == label
+                      ? AppColors.navyDeep
+                      : AppColors.creamSoft,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                      color: current == label
+                          ? AppColors.navyDeep
+                          : AppColors.line),
+                ),
+                child: Text(
+                  label,
+                  style: AppTextStyles.mono(
+                    size: 9,
+                    letterSpacing: 0.2,
+                    color: current == label ? AppColors.cream : AppColors.ink,
+                    weight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
