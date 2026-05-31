@@ -42,6 +42,18 @@ class MatchCard extends StatelessWidget {
     return inn.first.oversDisplay;
   }
 
+  String _resultText() {
+    if (match.resultWinnerTeamId == null) {
+      return match.resultMargin ?? 'Match tied';
+    }
+    final winner = MockData.teamById(match.resultWinnerTeamId!).name;
+    var margin = match.resultMargin;
+    if (margin == null || margin.isEmpty) {
+      margin = match.computedMargin(match.resultWinnerTeamId!);
+    }
+    return (margin == null || margin.isEmpty) ? '$winner won' : '$winner $margin';
+  }
+
   @override
   Widget build(BuildContext context) {
     final home = MockData.teamById(match.homeTeamId);
@@ -87,7 +99,9 @@ class MatchCard extends StatelessWidget {
             _teamRow(home, _scoreFor(home.id), _oversFor(home.id)),
             const SizedBox(height: 6),
             _teamRow(away, _scoreFor(away.id), _oversFor(away.id)),
-            if (match.resultMargin != null) ...[
+            if (match.isCompleted &&
+                (match.resultWinnerTeamId != null ||
+                    match.resultMargin != null)) ...[
               const SizedBox(height: 8),
               Container(
                 width: double.infinity,
@@ -98,7 +112,7 @@ class MatchCard extends StatelessWidget {
                 ),
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
-                  '${MockData.teamById(match.resultWinnerTeamId ?? match.homeTeamId).name} ${match.resultMargin}',
+                  _resultText(),
                   style: AppTextStyles.italicAccent(
                       size: 11, color: AppColors.ballRed),
                 ),

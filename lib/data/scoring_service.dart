@@ -79,6 +79,18 @@ class ScoringService {
     await _api.post('/api/matches/$matchId/balls/undo');
   }
 
+  /// Transition a match Scheduled -> Live without creating an innings.
+  Future<void> startMatch(int matchId) async {
+    await _api.post('/api/matches/$matchId/start', {});
+  }
+
+  /// Close an innings (AllOut / OversComplete / TargetReached / Abandoned).
+  Future<void> closeInnings(int matchId, int inningsId, String reason) async {
+    await _api.post('/api/matches/$matchId/innings/$inningsId/close', {
+      'reason': reason,
+    });
+  }
+
   Future<void> endMatch({
     required int matchId,
     int? winnerTeamId,

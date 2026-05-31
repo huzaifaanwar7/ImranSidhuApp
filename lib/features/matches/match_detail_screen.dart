@@ -7,6 +7,7 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/sponsor_banner.dart';
 import '../../core/widgets/team_badge.dart';
 import '../../data/api_client.dart';
+import '../../data/backend_sync.dart';
 import '../../data/mock_data.dart';
 import '../../data/scoring_service.dart';
 import '../../models/enums.dart';
@@ -96,6 +97,205 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
     } catch (_) {/* keep last known */}
   }
 
+  Future<void> _startMatch(CricketMatch m) async {
+    final mid = int.tryParse(m.id);
+    if (mid == null) return;
+    try {
+      await ScoringService.instance.startMatch(mid);
+      await BackendSync.instance.refreshAll();
+      if (!mounted) return;
+      setState(() {});
+      context.push('/match/${m.id}/score');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not start match: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _endMatch(CricketMatch m) async {
+    final mid = int.tryParse(m.id);
+    if (mid == null) return;
+    final home = MockData.teamById(m.homeTeamId);
+    final away = MockData.teamById(m.awayTeamId);
+    final squad = [
+      ...MockData.playersByTeam(m.homeTeamId),
+      ...MockData.playersByTeam(m.awayTeamId),
+    ];
+    String? winnerId;
+    String? momId;
+    final marginCtrl = TextEditingController();
+
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) => Container(
+          decoration: const BoxDecoration(
+            color: AppColors.cream,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: EdgeInsets.fromLTRB(
+              20, 20, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.line,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text('End Match', style: AppTextStyles.headlineLarge),
+                const SizedBox(height: 14),
+                Text('SELECT WINNER', style: AppTextStyles.caption),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _winnerChip(home.shortCode, winnerId == home.id,
+                        () => setModal(() => winnerId = home.id)),
+                    const SizedBox(width: 8),
+                    _winnerChip(away.shortCode, winnerId == away.id,
+                        () => setModal(() => winnerId = away.id)),
+                    const SizedBox(width: 8),
+                    _winnerChip('TIE', winnerId == 'tie',
+                        () => setModal(() => winnerId = 'tie')),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: marginCtrl,
+                  decoration: const InputDecoration(
+                    hintText: 'Result margin (e.g. "5 wickets" or "12 runs")',
+                  ),
+                  style:
+                      AppTextStyles.fraunces(size: 13, weight: FontWeight.w600),
+                ),
+                if (squad.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text('MAN OF THE MATCH (optional)',
+                      style: AppTextStyles.caption),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final picked = await showModalBottomSheet<String>(
+                        context: ctx,
+                        backgroundColor: Colors.transparent,
+                        isScrollControlled: true,
+                        builder: (c2) => Container(
+                          decoration: const BoxDecoration(
+                            color: AppColors.cream,
+                            borderRadius:
+                                BorderRadius.vertical(top: Radius.circular(24)),
+                          ),
+                          constraints: BoxConstraints(
+                              maxHeight:
+                                  MediaQuery.of(c2).size.height * 0.6),
+                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                          child: ListView(
+                            shrinkWrap: true,
+                            children: [
+                              for (final p in squad)
+                                ListTile(
+                                  title: Text(p.fullName,
+                                      style: AppTextStyles.fraunces(
+                                          size: 13, weight: FontWeight.w700)),
+                                  onTap: () => Navigator.pop(c2, p.id),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                      if (picked != null) setModal(() => momId = picked);
+                    },
+                    icon: const Icon(Icons.star_rounded, size: 18),
+                    label: Text(momId == null
+                        ? 'Select player'
+                        : MockData.playerById(momId!).fullName),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('CANCEL'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: winnerId == null
+                            ? null
+                            : () => Navigator.pop(ctx, true),
+                        child: const Text('END MATCH'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (confirmed != true) return;
+    try {
+      await ScoringService.instance.endMatch(
+        matchId: mid,
+        winnerTeamId: winnerId == 'tie' ? null : int.tryParse(winnerId ?? ''),
+        resultMargin:
+            marginCtrl.text.trim().isEmpty ? null : marginCtrl.text.trim(),
+        manOfTheMatchPlayerId: momId == null ? null : int.tryParse(momId!),
+      );
+      await BackendSync.instance.refreshAll();
+      if (mounted) context.go('/home');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not end match: $e')),
+        );
+      }
+    }
+  }
+
+  Widget _winnerChip(String label, bool selected, VoidCallback onTap) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.navy : Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected ? AppColors.navy : AppColors.line,
+              width: selected ? 2 : 1,
+            ),
+          ),
+          alignment: Alignment.center,
+          child: Text(label,
+              style: AppTextStyles.bebas(
+                  size: 14,
+                  color: selected ? AppColors.cream : AppColors.navyDeep)),
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _pollTimer?.cancel();
@@ -171,11 +371,13 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
                 ],
               ),
             ),
-            // Live score banner — polled every 5s from /scorecard
-            if (_liveScorecard != null) _LiveScoreBanner(card: _liveScorecard!),
-            // Score strip (only if has innings)
-            if (m.innings.isNotEmpty)
-              _ScoreStrip(match: m, home: home, away: away),
+            // Result banner once the match is completed.
+            if (m.isCompleted &&
+                (m.resultWinnerTeamId != null || m.resultMargin != null))
+              _ResultBanner(match: m)
+            // Otherwise, the live score banner — polled every 5s from /scorecard.
+            else if (_liveScorecard != null)
+              _LiveScoreBanner(card: _liveScorecard!),
             // Tabs
             Container(
               color: Colors.white,
@@ -196,115 +398,54 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
                 children: [
                   _InfoTab(match: m),
                   _CommentaryTab(matchId: m.id),
-                  _ScorecardTab(match: m),
-                  _StatsTab(match: m),
+                  _ScorecardTab(match: m, card: _liveScorecard),
+                  _StatsTab(match: m, card: _liveScorecard),
                 ],
               ),
             ),
           ],
         ),
       ),
-      bottomNavigationBar: (m.isLive && ApiClient.instance.canScore)
-          ? SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: ElevatedButton.icon(
-                  onPressed: () => context.push('/match/${m.id}/score'),
-                  icon: const Icon(Icons.sports_cricket_rounded),
-                  label: const Text('OPEN SCORING'),
-                ),
-              ),
-            )
-          : null,
-    );
-  }
-}
-
-class _ScoreStrip extends StatelessWidget {
-  final CricketMatch match;
-  final dynamic home;
-  final dynamic away;
-  const _ScoreStrip(
-      {required this.match, required this.home, required this.away});
-
-  @override
-  Widget build(BuildContext context) {
-    final inn = match.currentInnings!;
-    final battingTeam = MockData.teamById(inn.battingTeamId);
-    final ballsRemaining = (match.oversPerInnings * 6) - inn.legalBalls;
-    return Container(
-      width: double.infinity,
-      color: AppColors.navy,
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(battingTeam.name,
-                    style: AppTextStyles.fraunces(
-                        size: 14,
-                        weight: FontWeight.w700,
-                        color: AppColors.cream)),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text('${inn.totalRuns}/${inn.wickets}',
-                        style: AppTextStyles.fraunces(
-                            size: 24,
-                            weight: FontWeight.w900,
-                            color: AppColors.gold,
-                            letterSpacing: -0.02)),
-                    const SizedBox(width: 6),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Text('${inn.oversDisplay} OV',
-                          style: AppTextStyles.mono(
-                              size: 10,
-                              color: AppColors.cream.withValues(alpha: 0.6))),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          if (match.innings.length > 1)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text('NEED ${(inn.target ?? 0) - inn.totalRuns}',
-                    style: AppTextStyles.mono(
-                      size: 9,
-                      letterSpacing: 0.18,
-                      color: AppColors.cream.withValues(alpha: 0.7),
-                    )),
-                Text('$ballsRemaining BALLS',
-                    style: AppTextStyles.fraunces(
-                        size: 13,
-                        weight: FontWeight.w700,
-                        color: AppColors.cream)),
-              ],
-            )
-          else
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text('CRR',
-                    style: AppTextStyles.mono(
-                      size: 9,
-                      letterSpacing: 0.18,
-                      color: AppColors.cream.withValues(alpha: 0.7),
-                    )),
-                Text(inn.currentRunRate.toStringAsFixed(2),
-                    style: AppTextStyles.fraunces(
-                        size: 13,
-                        weight: FontWeight.w700,
-                        color: AppColors.cream)),
-              ],
-            ),
-        ],
-      ),
+      bottomNavigationBar:
+          (ApiClient.instance.canScore && (m.isUpcoming || m.isLive))
+              ? SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: m.isUpcoming
+                        ? ElevatedButton.icon(
+                            onPressed: () => _startMatch(m),
+                            icon: const Icon(Icons.play_circle_fill_rounded),
+                            label: const Text('START MATCH'),
+                          )
+                        : Row(
+                            children: [
+                              Expanded(
+                                flex: 2,
+                                child: ElevatedButton.icon(
+                                  onPressed: () =>
+                                      context.push('/match/${m.id}/score'),
+                                  icon:
+                                      const Icon(Icons.sports_cricket_rounded),
+                                  label: const Text('OPEN SCORING'),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: () => _endMatch(m),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.ballRed,
+                                    side: const BorderSide(
+                                        color: AppColors.ballRed),
+                                  ),
+                                  child: const Text('END'),
+                                ),
+                              ),
+                            ],
+                          ),
+                  ),
+                )
+              : null,
     );
   }
 }
@@ -364,9 +505,16 @@ class _InfoTab extends StatelessWidget {
               if (match.tossWinnerTeamId != null)
                 _kv('TOSS',
                     '${MockData.teamById(match.tossWinnerTeamId!).name} · ${match.tossDecision == TossDecision.bat ? 'Bat' : 'Bowl'} first'),
-              if (match.resultMargin != null)
-                _kv('RESULT',
-                    '${MockData.teamById(match.resultWinnerTeamId ?? match.homeTeamId).name} ${match.resultMargin}'),
+              if (match.resultWinnerTeamId != null ||
+                  match.resultMargin != null)
+                _kv(
+                    'RESULT',
+                    match.resultWinnerTeamId == null
+                        ? (match.resultMargin ?? 'Match tied')
+                        : '${MockData.teamById(match.resultWinnerTeamId!).name} ${(match.resultMargin == null || match.resultMargin!.isEmpty) ? 'won' : match.resultMargin}'),
+              if (match.manOfTheMatchPlayerId != null)
+                _kv('MAN OF MATCH',
+                    MockData.playerById(match.manOfTheMatchPlayerId!).fullName),
             ],
           ),
         ),
@@ -599,20 +747,32 @@ class _OverBlock extends StatelessWidget {
   }
 }
 
+int _ji(Object? v) => (v is num) ? v.toInt() : (int.tryParse('$v') ?? 0);
+List<Map<String, dynamic>> _jlist(Object? v) => ((v as List?) ?? const [])
+    .map((e) => Map<String, dynamic>.from(e as Map))
+    .toList();
+
 class _ScorecardTab extends StatelessWidget {
   final CricketMatch match;
-  const _ScorecardTab({required this.match});
+  final Map<String, dynamic>? card;
+  const _ScorecardTab({required this.match, this.card});
 
   @override
   Widget build(BuildContext context) {
-    if (match.innings.isEmpty) {
+    final innings = _jlist(card?['innings']);
+    if (innings.isEmpty) {
       return Center(
           child: Text('No innings yet', style: AppTextStyles.bodyLarge));
     }
+    final batting = _jlist(card?['batting']);
+    final bowling = _jlist(card?['bowling']);
+    final fow = _jlist(card?['fallOfWickets']);
     return ListView(
       padding: EdgeInsets.zero,
       children: [
-        for (final inn in match.innings) _InningsCard(innings: inn),
+        for (final inn in innings)
+          _InningsCard(
+              innings: inn, batting: batting, bowling: bowling, fow: fow),
         const SponsorBanner(slot: SponsorSlot.scorecard),
         const SizedBox(height: 24),
       ],
@@ -621,12 +781,40 @@ class _ScorecardTab extends StatelessWidget {
 }
 
 class _InningsCard extends StatelessWidget {
-  final dynamic innings;
-  const _InningsCard({required this.innings});
+  final Map<String, dynamic> innings;
+  final List<Map<String, dynamic>> batting;
+  final List<Map<String, dynamic>> bowling;
+  final List<Map<String, dynamic>> fow;
+  const _InningsCard({
+    required this.innings,
+    required this.batting,
+    required this.bowling,
+    required this.fow,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final team = MockData.teamById(innings.battingTeamId);
+    final inningsId = _ji(innings['id']);
+    final team = MockData.teamById('${innings['battingTeamId']}');
+    final runs = _ji(innings['totalRuns']);
+    final wkts = _ji(innings['wickets']);
+    final lb = _ji(innings['legalBallsBowled']);
+    final overs = '${lb ~/ 6}.${lb % 6}';
+    final innNo = _ji(innings['inningsNumber']);
+    final wides = _ji(innings['extrasWides']);
+    final noBalls = _ji(innings['extrasNoBalls']);
+    final byes = _ji(innings['extrasByes']);
+    final legByes = _ji(innings['extrasLegByes']);
+    final pen = _ji(innings['extrasPenalty']);
+    final extras = wides + noBalls + byes + legByes + pen;
+
+    final bat = batting.where((b) => _ji(b['inningsId']) == inningsId).toList()
+      ..sort((a, b) => _ji(a['battingOrder']).compareTo(_ji(b['battingOrder'])));
+    final bowl =
+        bowling.where((b) => _ji(b['inningsId']) == inningsId).toList();
+    final myFow = fow.where((f) => _ji(f['inningsId']) == inningsId).toList()
+      ..sort((a, b) => _ji(a['wicketNumber']).compareTo(_ji(b['wicketNumber'])));
+
     return Column(
       children: [
         Container(
@@ -643,7 +831,7 @@ class _InningsCard extends StatelessWidget {
                             size: 14,
                             weight: FontWeight.w700,
                             color: AppColors.cream)),
-                    Text('1st INNINGS · ${innings.oversDisplay} OV',
+                    Text('${innNo == 2 ? '2nd' : '1st'} INNINGS · $overs OV',
                         style: AppTextStyles.mono(
                           size: 8,
                           color: AppColors.cream.withValues(alpha: 0.6),
@@ -655,13 +843,13 @@ class _InningsCard extends StatelessWidget {
               RichText(
                 text: TextSpan(children: [
                   TextSpan(
-                      text: '${innings.totalRuns}',
+                      text: '$runs',
                       style: AppTextStyles.fraunces(
                           size: 22,
                           weight: FontWeight.w900,
                           color: AppColors.gold)),
                   TextSpan(
-                      text: '/${innings.wickets}',
+                      text: '/$wkts',
                       style: AppTextStyles.mono(
                           size: 11,
                           color: AppColors.cream.withValues(alpha: 0.6))),
@@ -675,8 +863,14 @@ class _InningsCard extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Column(
             children: [
-              _scardHeader(),
-              for (final b in innings.battingCard) _scardRow(b),
+              _batHeader(),
+              if (bat.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text('No batting yet',
+                      style: AppTextStyles.mono(size: 10, color: AppColors.grey)),
+                ),
+              for (final b in bat) _batRow(b),
             ],
           ),
         ),
@@ -692,18 +886,29 @@ class _InningsCard extends StatelessWidget {
                       weight: FontWeight.w700,
                       color: AppColors.navyDeep)),
               const SizedBox(width: 8),
-              Text('${innings.extras}', style: AppTextStyles.bodyMedium),
+              Text('$extras', style: AppTextStyles.bodyMedium),
               const Spacer(),
               Text(
-                'WD ${innings.wides} · NB ${innings.noBalls} · LB ${innings.legByes} · B ${innings.byes}',
+                'WD $wides · NB $noBalls · LB $legByes · B $byes',
                 style: AppTextStyles.mono(
                     size: 9, color: AppColors.grey, letterSpacing: 0.1),
               ),
             ],
           ),
         ),
+        // Bowling table
+        if (bowl.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              children: [
+                _bowlHeader(),
+                for (final b in bowl) _bowlRow(b),
+              ],
+            ),
+          ),
         // Fall of wickets
-        if (innings.fallOfWickets.isNotEmpty)
+        if (myFow.isNotEmpty)
           Container(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
             color: Colors.white,
@@ -719,7 +924,7 @@ class _InningsCard extends StatelessWidget {
                   spacing: 6,
                   runSpacing: 6,
                   children: [
-                    for (final f in innings.fallOfWickets)
+                    for (final f in myFow)
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 5),
@@ -731,7 +936,7 @@ class _InningsCard extends StatelessWidget {
                         child: RichText(
                           text: TextSpan(children: [
                             TextSpan(
-                                text: '${f.wicketNumber}-${f.score}',
+                                text: '${_ji(f['wicketNumber'])}-${_ji(f['runs'])}',
                                 style: AppTextStyles.mono(
                                   size: 9,
                                   color: AppColors.ballRed,
@@ -740,7 +945,7 @@ class _InningsCard extends StatelessWidget {
                                 )),
                             TextSpan(
                                 text:
-                                    '  ${MockData.playerById(f.batterOutId).fullName.split(' ').last} · ${f.overs}',
+                                    '  ${'${f['player'] ?? ''}'.split(' ').last} · ${f['overs']}',
                                 style: AppTextStyles.mono(
                                   size: 9,
                                   color: AppColors.ink,
@@ -759,7 +964,7 @@ class _InningsCard extends StatelessWidget {
     );
   }
 
-  Widget _scardHeader() {
+  Widget _batHeader() {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: const BoxDecoration(
@@ -768,22 +973,11 @@ class _InningsCard extends StatelessWidget {
       child: Row(
         children: [
           Expanded(child: Text('BATTER', style: AppTextStyles.caption)),
-          SizedBox(
-              width: 28,
-              child: Text('R',
-                  textAlign: TextAlign.end, style: AppTextStyles.caption)),
-          SizedBox(
-              width: 28,
-              child: Text('B',
-                  textAlign: TextAlign.end, style: AppTextStyles.caption)),
-          SizedBox(
-              width: 28,
-              child: Text('4s',
-                  textAlign: TextAlign.end, style: AppTextStyles.caption)),
-          SizedBox(
-              width: 28,
-              child: Text('6s',
-                  textAlign: TextAlign.end, style: AppTextStyles.caption)),
+          for (final h in const ['R', 'B', '4s', '6s'])
+            SizedBox(
+                width: 28,
+                child: Text(h,
+                    textAlign: TextAlign.end, style: AppTextStyles.caption)),
           SizedBox(
               width: 38,
               child: Text('SR',
@@ -793,7 +987,10 @@ class _InningsCard extends StatelessWidget {
     );
   }
 
-  Widget _scardRow(b) {
+  Widget _batRow(Map<String, dynamic> b) {
+    final runs = _ji(b['runs']);
+    final balls = _ji(b['ballsFaced']);
+    final sr = balls == 0 ? 0.0 : (runs / balls) * 100;
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: const BoxDecoration(
@@ -805,22 +1002,21 @@ class _InningsCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(MockData.playerById(b.playerId).fullName,
+                Text('${b['fullName'] ?? 'Batter'}',
                     style: AppTextStyles.dm(size: 11, weight: FontWeight.w700)),
                 Text(
-                  b.isOut ? (b.dismissalDescription ?? 'out') : 'not out',
+                  b['isOut'] == true
+                      ? '${b['dismissalDescription'] ?? 'out'}'
+                      : 'not out',
                   style: AppTextStyles.mono(
-                    size: 8,
-                    color: AppColors.grey,
-                    letterSpacing: 0.05,
-                  ),
+                      size: 8, color: AppColors.grey, letterSpacing: 0.05),
                 ),
               ],
             ),
           ),
           SizedBox(
               width: 28,
-              child: Text('${b.runs}',
+              child: Text('$runs',
                   textAlign: TextAlign.end,
                   style: AppTextStyles.fraunces(
                       size: 13,
@@ -828,22 +1024,94 @@ class _InningsCard extends StatelessWidget {
                       color: AppColors.navyDeep))),
           SizedBox(
               width: 28,
-              child: Text('${b.balls}',
+              child: Text('$balls',
                   textAlign: TextAlign.end,
                   style: AppTextStyles.mono(size: 9, color: AppColors.grey))),
           SizedBox(
               width: 28,
-              child: Text('${b.fours}',
+              child: Text('${_ji(b['fours'])}',
                   textAlign: TextAlign.end,
                   style: AppTextStyles.mono(size: 9, color: AppColors.grey))),
           SizedBox(
               width: 28,
-              child: Text('${b.sixes}',
+              child: Text('${_ji(b['sixes'])}',
                   textAlign: TextAlign.end,
                   style: AppTextStyles.mono(size: 9, color: AppColors.grey))),
           SizedBox(
               width: 38,
-              child: Text(b.strikeRate.toStringAsFixed(1),
+              child: Text(sr.toStringAsFixed(1),
+                  textAlign: TextAlign.end,
+                  style: AppTextStyles.mono(
+                      size: 9,
+                      color: AppColors.goldDeep,
+                      weight: FontWeight.w700))),
+        ],
+      ),
+    );
+  }
+
+  Widget _bowlHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: AppColors.ink, width: 1.5)),
+      ),
+      child: Row(
+        children: [
+          Expanded(child: Text('BOWLER', style: AppTextStyles.caption)),
+          for (final h in const ['O', 'R', 'W'])
+            SizedBox(
+                width: 30,
+                child: Text(h,
+                    textAlign: TextAlign.end, style: AppTextStyles.caption)),
+          SizedBox(
+              width: 42,
+              child: Text('ECON',
+                  textAlign: TextAlign.end, style: AppTextStyles.caption)),
+        ],
+      ),
+    );
+  }
+
+  Widget _bowlRow(Map<String, dynamic> b) {
+    final oversStr = '${b['overs'] ?? '0.0'}';
+    final parts = oversStr.split('.');
+    final balls = (int.tryParse(parts.first) ?? 0) * 6 +
+        (parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0);
+    final runs = _ji(b['runsConceded']);
+    final econ = balls == 0 ? 0.0 : runs * 6 / balls;
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: AppColors.line)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text('${b['fullName'] ?? 'Bowler'}',
+                style: AppTextStyles.dm(size: 11, weight: FontWeight.w700)),
+          ),
+          SizedBox(
+              width: 30,
+              child: Text(oversStr,
+                  textAlign: TextAlign.end,
+                  style: AppTextStyles.mono(size: 9, color: AppColors.grey))),
+          SizedBox(
+              width: 30,
+              child: Text('$runs',
+                  textAlign: TextAlign.end,
+                  style: AppTextStyles.mono(size: 9, color: AppColors.grey))),
+          SizedBox(
+              width: 30,
+              child: Text('${_ji(b['wickets'])}',
+                  textAlign: TextAlign.end,
+                  style: AppTextStyles.fraunces(
+                      size: 13,
+                      weight: FontWeight.w700,
+                      color: AppColors.navyDeep))),
+          SizedBox(
+              width: 42,
+              child: Text(econ.toStringAsFixed(1),
                   textAlign: TextAlign.end,
                   style: AppTextStyles.mono(
                       size: 9,
@@ -855,25 +1123,78 @@ class _InningsCard extends StatelessWidget {
   }
 }
 
-class _StatsTab extends StatelessWidget {
+class _ResultBanner extends StatelessWidget {
   final CricketMatch match;
-  const _StatsTab({required this.match});
+  const _ResultBanner({required this.match});
 
   @override
   Widget build(BuildContext context) {
-    final inn = match.currentInnings;
-    if (inn == null) {
+    final winner = match.resultWinnerTeamId == null
+        ? null
+        : MockData.teamById(match.resultWinnerTeamId!).name;
+    var margin = match.resultMargin;
+    if ((margin == null || margin.isEmpty) && match.resultWinnerTeamId != null) {
+      margin = match.computedMargin(match.resultWinnerTeamId!);
+    }
+    final text = winner == null
+        ? (match.resultMargin ?? 'Match tied')
+        : ((margin == null || margin.isEmpty) ? '$winner won' : '$winner $margin');
+    return Container(
+      width: double.infinity,
+      color: AppColors.amasGreen,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          const Icon(Icons.emoji_events_rounded, color: Colors.white, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text.toUpperCase(),
+                style: AppTextStyles.mono(
+                    size: 11,
+                    color: Colors.white,
+                    weight: FontWeight.w700,
+                    letterSpacing: 0.2)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatsTab extends StatelessWidget {
+  final CricketMatch match;
+  final Map<String, dynamic>? card;
+  const _StatsTab({required this.match, this.card});
+
+  @override
+  Widget build(BuildContext context) {
+    final innings = _jlist(card?['innings']);
+    if (innings.isEmpty) {
       return Center(child: Text('No data yet', style: AppTextStyles.bodyLarge));
     }
-    final boundaries =
-        inn.battingCard.fold<int>(0, (s, b) => s + b.fours + b.sixes);
+    final inn = innings.last;
+    final inningsId = _ji(inn['id']);
+    final runs = _ji(inn['totalRuns']);
+    final wkts = _ji(inn['wickets']);
+    final lb = _ji(inn['legalBallsBowled']);
+    final overs = '${lb ~/ 6}.${lb % 6}';
+    final crr = lb == 0 ? 0.0 : (runs / lb) * 6;
+    final wides = _ji(inn['extrasWides']);
+    final noBalls = _ji(inn['extrasNoBalls']);
+    final byes = _ji(inn['extrasByes']);
+    final legByes = _ji(inn['extrasLegByes']);
+    final pen = _ji(inn['extrasPenalty']);
+    final extras = wides + noBalls + byes + legByes + pen;
+    final boundaries = _jlist(card?['batting'])
+        .where((b) => _ji(b['inningsId']) == inningsId)
+        .fold<int>(0, (s, b) => s + _ji(b['fours']) + _ji(b['sixes']));
     final stats = [
-      ('Run Rate', inn.currentRunRate.toStringAsFixed(2)),
-      ('Wickets', '${inn.wickets}'),
+      ('Run Rate', crr.toStringAsFixed(2)),
+      ('Wickets', '$wkts'),
       ('Boundaries', '$boundaries'),
-      ('Extras', '${inn.extras}'),
-      ('Overs', inn.oversDisplay),
-      ('Legal Balls', '${inn.legalBalls}'),
+      ('Extras', '$extras'),
+      ('Overs', overs),
+      ('Legal Balls', '$lb'),
     ];
     return GridView.builder(
       padding: const EdgeInsets.all(16),

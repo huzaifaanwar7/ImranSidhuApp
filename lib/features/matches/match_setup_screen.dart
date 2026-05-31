@@ -12,6 +12,7 @@ import '../../data/backend_sync.dart';
 import '../../data/mock_data.dart';
 import '../../models/enums.dart';
 import '../../models/match.dart';
+import '../../models/team.dart';
 
 class MatchSetupScreen extends StatefulWidget {
   const MatchSetupScreen({super.key});
@@ -295,7 +296,7 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
     );
   }
 
-  Widget _teamPicker(String? selectedId, bool isHome, List teams) {
+  Widget _teamPicker(String? selectedId, bool isHome, List<Team> teams) {
     final selected = selectedId == null ? null : MockData.teamById(selectedId);
     return InkWell(
       borderRadius: BorderRadius.circular(12),
@@ -354,7 +355,7 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
     );
   }
 
-  Widget _tossBox(List teams) {
+  Widget _tossBox(List<Team> teams) {
     final availableIds = [_homeId, _awayId].whereType<String>().toList();
     if (!availableIds.contains(_tossWinnerId)) {
       _tossWinnerId = availableIds.isEmpty ? null : availableIds.first;
@@ -497,7 +498,7 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
 }
 
 class _TeamPickerSheet extends StatelessWidget {
-  final List teams;
+  final List<Team> teams;
   final String? excludeId;
 
   const _TeamPickerSheet({required this.teams, this.excludeId});

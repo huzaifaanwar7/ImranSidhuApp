@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/enums.dart';
+import '../models/innings.dart';
 import '../models/match.dart';
 import '../models/player.dart';
 import '../models/team.dart';
@@ -25,17 +26,33 @@ class BackendSync {
   /// Works for both authenticated and anonymous users — all list endpoints are public.
   Future<void> refreshAll() async {
     try {
-      final results = await Future.wait([
-        _fetchTeams(),
-        _fetchPlayers(),
-        _fetchTournaments(),
-        _fetchMatches(),
-      ]);
+      // Start all requests concurrently, then await.
+      final teamsF = _fetchTeams();
+      final playersF = _fetchPlayers();
+      final tournamentsF = _fetchTournaments();
+      final matchesF = _fetchMatches();
+
+      final teams = await teamsF;
+      final players = await playersF;
+      final tournaments = await tournamentsF;
+      final (matches, embeddedTeams) = await matchesF;
+
+      // Merge teams referenced by matches (e.g. teams removed from the public
+      // list, or not yet synced) so the UI shows real names instead of
+      // "Unknown team". Real team records take priority over embedded stubs.
+      final byId = <String, Team>{};
+      for (final t in embeddedTeams) {
+        byId[t.id] = t;
+      }
+      for (final t in teams) {
+        byId[t.id] = t;
+      }
+
       await _store.replaceAll(
-        teams: results[0] as List<Team>,
-        players: results[1] as List<Player>,
-        tournaments: results[2] as List<Tournament>,
-        matches: results[3] as List<CricketMatch>,
+        teams: byId.values.toList(),
+        players: players,
+        tournaments: tournaments,
+        matches: matches,
       );
     } catch (e) {
       debugPrint('[BackendSync] refreshAll failed: $e');
@@ -184,10 +201,25 @@ class BackendSync {
     return items.map(_tournamentFromApi).toList();
   }
 
-  Future<List<CricketMatch>> _fetchMatches() async {
+  /// Returns parsed matches plus any teams embedded in the match payloads
+  /// (homeTeam/awayTeam), so referenced teams resolve to real names.
+  Future<(List<CricketMatch>, List<Team>)> _fetchMatches() async {
     final res = await _api.get('/api/matches', query: {'pageSize': 500});
-    final items = (res['items'] as List).cast<Map>().map((m) => Map<String, dynamic>.from(m));
-    return items.map(_matchFromApi).toList();
+    final items = (res['items'] as List)
+        .cast<Map>()
+        .map((m) => Map<String, dynamic>.from(m))
+        .toList();
+    final matches = items.map(_matchFromApi).toList();
+    final embedded = <Team>[];
+    for (final m in items) {
+      for (final key in const ['homeTeam', 'awayTeam']) {
+        if (m[key] is Map) {
+          final t = Map<String, dynamic>.from(m[key] as Map);
+          if (t['id'] != null) embedded.add(_teamFromApi(t));
+        }
+      }
+    }
+    return (matches, embedded);
   }
 
   // -------- MODEL CONVERTERS --------
@@ -266,7 +298,29 @@ class BackendSync {
       resultMargin: m['resultMargin'] as String?,
       manOfTheMatchPlayerId: m['manOfTheMatchPlayerId']?.toString(),
       stageLabel: m['stageLabel'] as String?,
+      innings: _inningsSummariesFromApi(m['innings']),
     );
+  }
+
+  /// Lightweight innings list from the match-list payload so cards can show
+  /// scores. Full batting/bowling cards come from the /scorecard endpoint.
+  List<Innings> _inningsSummariesFromApi(dynamic raw) {
+    if (raw is! List) return const [];
+    int gi(Object? v) => (v is num) ? v.toInt() : (int.tryParse('$v') ?? 0);
+    return raw.whereType<Map>().map((e) {
+      final i = Map<String, dynamic>.from(e);
+      return Innings(
+        id: '${i['id']}',
+        matchId: '${i['matchId']}',
+        inningsNumber: gi(i['inningsNumber']) == 2 ? 2 : 1,
+        battingTeamId: '${i['battingTeamId']}',
+        bowlingTeamId: '${i['bowlingTeamId']}',
+        totalRuns: gi(i['totalRuns']),
+        wickets: gi(i['wickets']),
+        legalBalls: gi(i['legalBallsBowled']),
+        target: i['target'] == null ? null : gi(i['target']),
+      );
+    }).toList();
   }
 
   // -------- ENUM HELPERS --------

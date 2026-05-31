@@ -56,4 +56,21 @@ class CricketMatch {
 
   Innings? get currentInnings => innings.isEmpty ? null : innings.last;
   Innings? get firstInnings => innings.isNotEmpty ? innings.first : null;
+
+  /// Derive "won by X runs/wickets" from innings totals when the stored
+  /// resultMargin is missing. Returns null if it can't be computed.
+  String? computedMargin(String winnerId) {
+    if (innings.length < 2) return null;
+    final won = innings.where((i) => i.battingTeamId == winnerId).toList();
+    final lost = innings.where((i) => i.battingTeamId != winnerId).toList();
+    if (won.isEmpty || lost.isEmpty) return null;
+    final wi = won.first;
+    final li = lost.first;
+    if (wi.inningsNumber == 2) {
+      final w = 10 - wi.wickets;
+      return 'won by $w wicket${w == 1 ? '' : 's'}';
+    }
+    final r = wi.totalRuns - li.totalRuns;
+    return 'won by $r run${r == 1 ? '' : 's'}';
+  }
 }

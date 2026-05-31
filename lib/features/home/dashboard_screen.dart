@@ -415,10 +415,15 @@ class _LiveMatchCard extends StatelessWidget {
   }
 
   String _summary(String homeName, String awayName) {
-    if (match.isCompleted && match.resultMargin != null) {
-      final winner =
-          MockData.teamById(match.resultWinnerTeamId ?? match.homeTeamId);
-      return '${winner.name} ${match.resultMargin}';
+    if (match.isCompleted &&
+        (match.resultWinnerTeamId != null || match.resultMargin != null)) {
+      if (match.resultWinnerTeamId == null) return match.resultMargin!;
+      final winner = MockData.teamById(match.resultWinnerTeamId!).name;
+      var margin = match.resultMargin;
+      if (margin == null || margin.isEmpty) {
+        margin = match.computedMargin(match.resultWinnerTeamId!);
+      }
+      return (margin == null || margin.isEmpty) ? '$winner won' : '$winner $margin';
     }
     if (match.isLive) {
       final inn = match.currentInnings;
