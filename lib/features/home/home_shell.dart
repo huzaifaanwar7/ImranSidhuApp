@@ -2,11 +2,33 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
+import '../../data/backend_sync.dart';
 
 /// 5-tab bottom nav: Home · Teams · Players · Tourneys · Profile.
-class HomeShell extends StatelessWidget {
+class HomeShell extends StatefulWidget {
   final Widget child;
   const HomeShell({super.key, required this.child});
+
+  @override
+  State<HomeShell> createState() => _HomeShellState();
+}
+
+class _HomeShellState extends State<HomeShell> {
+  @override
+  void initState() {
+    super.initState();
+    // Load all public data once when the shell mounts.
+    // Individual screens listen to AppStore and rebuild automatically.
+    BackendSync.instance.refreshAll().catchError((_) {});
+  }
+
+  @override
+  Widget build(BuildContext context) => _HomeShellView(child: widget.child);
+}
+
+class _HomeShellView extends StatelessWidget {
+  final Widget child;
+  const _HomeShellView({required this.child});
 
   static const _tabs = [
     _Tab('/home', Icons.home_rounded, Icons.home_outlined, 'Home'),

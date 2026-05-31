@@ -4,6 +4,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_top_bar.dart';
 import '../../data/api_client.dart';
+import '../../data/app_store.dart';
 import '../../data/mock_data.dart';
 import '../../models/enums.dart';
 import '../../models/player.dart';
@@ -18,6 +19,20 @@ class PlayersListScreen extends StatefulWidget {
 class _PlayersListScreenState extends State<PlayersListScreen> {
   String query = '';
   PlayerRole? role;
+
+  @override
+  void initState() {
+    super.initState();
+    AppStore.instance.addListener(_onData);
+  }
+
+  void _onData() { if (mounted) setState(() {}); }
+
+  @override
+  void dispose() {
+    AppStore.instance.removeListener(_onData);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

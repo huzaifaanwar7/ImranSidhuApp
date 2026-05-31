@@ -7,6 +7,7 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_top_bar.dart';
 import '../../core/widgets/team_badge.dart';
 import '../../data/api_client.dart';
+import '../../data/app_store.dart';
 import '../../data/mock_data.dart';
 import '../../models/enums.dart';
 import '../../models/tournament.dart';
@@ -19,6 +20,20 @@ class TournamentsListScreen extends StatefulWidget {
 }
 
 class _TournamentsListScreenState extends State<TournamentsListScreen> {
+  @override
+  void initState() {
+    super.initState();
+    AppStore.instance.addListener(_onData);
+  }
+
+  void _onData() { if (mounted) setState(() {}); }
+
+  @override
+  void dispose() {
+    AppStore.instance.removeListener(_onData);
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final tournaments = [...MockData.tournaments]

@@ -10,11 +10,32 @@ import '../../core/widgets/section_header.dart';
 import '../../core/widgets/sponsor_banner.dart';
 import '../../core/widgets/team_badge.dart';
 import '../../data/api_client.dart';
+import '../../data/app_store.dart';
 import '../../data/mock_data.dart';
 import '../../models/enums.dart';
+import '../../models/match.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  @override
+  void initState() {
+    super.initState();
+    AppStore.instance.addListener(_onData);
+  }
+
+  void _onData() { if (mounted) setState(() {}); }
+
+  @override
+  void dispose() {
+    AppStore.instance.removeListener(_onData);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -310,7 +331,7 @@ class _EmptyHomeSection extends StatelessWidget {
 }
 
 class _LiveMatchCard extends StatelessWidget {
-  final dynamic match;
+  final CricketMatch match;
   const _LiveMatchCard({required this.match});
 
   @override
@@ -318,10 +339,10 @@ class _LiveMatchCard extends StatelessWidget {
     final home = MockData.teamById(match.homeTeamId);
     final away = MockData.teamById(match.awayTeamId);
     final inn = match.currentInnings;
-    final homeScore = inn?.battingTeamId == home.id
+    final homeScore = inn != null && inn.battingTeamId == home.id
         ? '${inn.totalRuns}/${inn.wickets}'
         : null;
-    final awayScore = inn?.battingTeamId == away.id
+    final awayScore = inn != null && inn.battingTeamId == away.id
         ? '${inn.totalRuns}/${inn.wickets}'
         : null;
     final summary = _summary(home.name, away.name);
@@ -342,7 +363,7 @@ class _LiveMatchCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    (match.matchName as String).toUpperCase(),
+                    match.matchName.toUpperCase(),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTextStyles.mono(
