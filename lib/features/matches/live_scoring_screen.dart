@@ -186,6 +186,7 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
     _snapshot();
     final bool wasWide = wideToggle, wasNoBall = noBallToggle;
     final bool wasBye = byeToggle, wasLegBye = legByeToggle;
+    bool overEnded = false;
     setState(() {
       if (wideToggle || noBallToggle) {
         totalRuns += 1 + runs;
@@ -222,7 +223,7 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
         overNumber++;
         bowlerLegalBalls = 0;
         _swap();
-        _showOverEndSheet();
+        overEnded = true;
       }
     });
     // After local state settles, sync this ball to backend.
@@ -237,6 +238,13 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
     } else {
       _pushBall(runsBatter: runs);
     }
+    // Check match end AFTER state update so values are current.
+    final m = MockData.matchById(widget.matchId);
+    if (overEnded && overNumber > m.oversPerInnings) {
+      _showMatchEndSheet(reason: 'Overs complete');
+    } else if (overEnded) {
+      _showOverEndSheet();
+    }
   }
 
   void _wicketSheet() async {
@@ -249,6 +257,7 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
     if (r != null) {
       HapticFeedback.heavyImpact();
       _snapshot();
+      bool overEnded = false;
       setState(() {
         wickets++;
         legalBalls++;
@@ -264,11 +273,153 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
           overNumber++;
           bowlerLegalBalls = 0;
           _swap();
-          _showOverEndSheet();
+          overEnded = true;
         }
       });
       _pushBall(runsBatter: 0, isWicket: true, wicketType: r.label.replaceAll(' ', ''));
+      final m = MockData.matchById(widget.matchId);
+      if (wickets >= 10) {
+        _showMatchEndSheet(reason: 'All out');
+      } else if (overEnded && overNumber > m.oversPerInnings) {
+        _showMatchEndSheet(reason: 'Overs complete');
+      } else if (overEnded) {
+        _showOverEndSheet();
+      }
     }
+  }
+
+  void _showMatchEndSheet({String reason = ''}) {
+    final m = MockData.matchById(widget.matchId);
+    final home = MockData.teamById(m.homeTeamId);
+    final away = MockData.teamById(m.awayTeamId);
+    String? selectedWinnerId;
+    final marginCtrl = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      isDismissible: false,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setModalState) => Container(
+          decoration: const BoxDecoration(
+            color: AppColors.cream,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: EdgeInsets.fromLTRB(
+              20, 20, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36, height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.line,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text('End Match', style: AppTextStyles.headlineLarge),
+                if (reason.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(reason, style: AppTextStyles.italicAccent(size: 13, color: AppColors.grey)),
+                ],
+                const SizedBox(height: 16),
+                Text('Final Score: $totalRuns/$wickets in ${legalBalls ~/ 6}.${legalBalls % 6} overs',
+                    style: AppTextStyles.bodyLarge),
+                const SizedBox(height: 14),
+                Text('SELECT WINNER', style: AppTextStyles.caption),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _winnerBtn(home, selectedWinnerId == home.id, () =>
+                        setModalState(() => selectedWinnerId = home.id)),
+                    const SizedBox(width: 8),
+                    _winnerBtn(away, selectedWinnerId == away.id, () =>
+                        setModalState(() => selectedWinnerId = away.id)),
+                    const SizedBox(width: 8),
+                    _winnerBtn(null, selectedWinnerId == 'tie', () =>
+                        setModalState(() => selectedWinnerId = 'tie')),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: marginCtrl,
+                  decoration: const InputDecoration(
+                    hintText: 'Result margin (e.g. "5 wickets" or "12 runs")',
+                  ),
+                  style: AppTextStyles.fraunces(size: 13, weight: FontWeight.w600),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('KEEP SCORING'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () async {
+                          Navigator.pop(ctx);
+                          final matchIdInt = int.tryParse(widget.matchId);
+                          if (matchIdInt != null) {
+                            final winnerId = selectedWinnerId == 'tie'
+                                ? null
+                                : int.tryParse(selectedWinnerId ?? '');
+                            await ScoringService.instance.endMatch(
+                              matchId: matchIdInt,
+                              winnerTeamId: winnerId,
+                              resultMargin: marginCtrl.text.trim().isEmpty
+                                  ? null
+                                  : marginCtrl.text.trim(),
+                            );
+                          }
+                          if (mounted) context.pop();
+                        },
+                        child: const Text('END MATCH'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _winnerBtn(dynamic team, bool selected, VoidCallback onTap) {
+    final label = team == null ? 'TIE' : (team.shortCode as String);
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.navy : Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected ? AppColors.navy : AppColors.line,
+              width: selected ? 2 : 1,
+            ),
+          ),
+          alignment: Alignment.center,
+          child: Text(label,
+              style: AppTextStyles.bebas(
+                  size: 14,
+                  color: selected ? AppColors.cream : AppColors.navyDeep)),
+        ),
+      ),
+    );
   }
 
   void _undo() {
@@ -701,6 +852,19 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
                       }),
                       _padExtra('UNDO', false, _history.isEmpty ? null : _undo),
                     ],
+                  ),
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _showMatchEndSheet(),
+                      icon: const Icon(Icons.stop_circle_outlined, size: 16),
+                      label: const Text('END MATCH'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.ballRed,
+                        side: const BorderSide(color: AppColors.ballRed),
+                      ),
+                    ),
                   ),
                 ],
               ),

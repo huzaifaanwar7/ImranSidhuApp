@@ -4,6 +4,7 @@ import '../../core/constants/app_assets.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_logo.dart';
+import '../../data/backend_sync.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -21,6 +22,9 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void initState() {
     super.initState();
+    // Load public data (teams, players, tournaments, matches) so viewers see
+    // content without needing to log in. Run in parallel with the splash delay.
+    BackendSync.instance.refreshAll().catchError((_) {});
     Future.delayed(const Duration(milliseconds: 2400), () {
       if (!mounted) return;
       // Viewers don't need to log in — go straight to /home.

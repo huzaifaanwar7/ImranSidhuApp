@@ -22,8 +22,8 @@ class BackendSync {
   final _store = AppStore.instance;
 
   /// Pulls everything from the backend in parallel.
+  /// Works for both authenticated and anonymous users — all list endpoints are public.
   Future<void> refreshAll() async {
-    if (!_api.isAuthed) return;
     try {
       final results = await Future.wait([
         _fetchTeams(),
@@ -71,6 +71,10 @@ class BackendSync {
       await _api.delete('/api/teams/$id');
     }
     await _store.deleteTeam(id);
+  }
+
+  Future<void> assignCaptain(String teamId, int captainUserId) async {
+    await _api.post('/api/teams/$teamId/captain', {'captainUserId': captainUserId});
   }
 
   Future<Player> upsertPlayer(Player p, {String? photoBase64}) async {

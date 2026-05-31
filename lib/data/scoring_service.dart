@@ -79,6 +79,19 @@ class ScoringService {
     await _api.post('/api/matches/$matchId/balls/undo');
   }
 
+  Future<void> endMatch({
+    required int matchId,
+    int? winnerTeamId,
+    String? resultMargin,
+    int? manOfTheMatchPlayerId,
+  }) async {
+    await _api.post('/api/matches/$matchId/end', {
+      'winnerTeamId': winnerTeamId,
+      'resultMargin': resultMargin,
+      'manOfTheMatchPlayerId': manOfTheMatchPlayerId,
+    });
+  }
+
   /// Public — no auth required. Used by viewers to poll for live updates.
   Future<Map<String, dynamic>> scorecard(int matchId) async {
     final res = await _api.get('/api/matches/$matchId/scorecard');

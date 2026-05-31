@@ -7,6 +7,7 @@ import '../../core/widgets/app_top_bar.dart';
 import '../../core/widgets/match_card.dart';
 import '../../core/widgets/team_badge.dart';
 import '../../data/api_client.dart';
+import '../../data/backend_sync.dart';
 import '../../data/mock_data.dart';
 import '../../models/enums.dart';
 import '../../models/player.dart';
@@ -282,9 +283,66 @@ class _Squad extends StatelessWidget {
 
   const _Squad({required this.team, required this.players});
 
+  Future<void> _assignCaptain(BuildContext context) async {
+    final api = ApiClient.instance;
+    // Load all users to pick a captain (SuperAdmin only sees user list)
+    List<Map<String, dynamic>> candidates = [];
+    try {
+      final res = await api.get('/api/users', query: {'pageSize': 200, 'status': 'Approved'});
+      candidates = List<Map<String, dynamic>>.from(res['items'] as List);
+      candidates = candidates.where((u) => u['role'] != 'SuperAdmin').toList();
+    } catch (_) {
+      // fallback: use roster players
+    }
+
+    int? selectedUserId;
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+          title: const Text('Assign Captain'),
+          content: candidates.isEmpty
+              ? const Text('No eligible users found.')
+              : DropdownButtonFormField<int>(
+                  decoration: const InputDecoration(labelText: 'Select user'),
+                  items: candidates.map((u) => DropdownMenuItem<int>(
+                    value: u['id'] as int,
+                    child: Text('${u['fullName']} (${u['username']})'),
+                  )).toList(),
+                  onChanged: (v) => setS(() => selectedUserId = v),
+                ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: selectedUserId == null ? null : () async {
+                Navigator.pop(ctx);
+                try {
+                  await BackendSync.instance.assignCaptain(team.id, selectedUserId!);
+                  await BackendSync.instance.refreshAll();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Captain assigned.')));
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Failed: $e')));
+                  }
+                }
+              },
+              child: const Text('Assign'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final canAdd = ApiClient.instance.canManagePlayers;
+    final api = ApiClient.instance;
+    final canAdd = api.canManagePlayers;
+    final canAssignCaptain = api.canManageTeams; // SuperAdmin or Admin
     if (players.isEmpty) {
       return _EmptyPanel(
         icon: Icons.person_add_alt_1_outlined,
@@ -298,16 +356,25 @@ class _Squad extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 14, 18, 100),
       children: [
-        if (canAdd)
-          Align(
-            alignment: Alignment.centerRight,
-            child: OutlinedButton.icon(
-              onPressed: () => context.push('/player/new?teamId=${team.id}'),
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('Add player'),
-            ),
-          ),
-        if (canAdd) const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            if (canAssignCaptain)
+              OutlinedButton.icon(
+                onPressed: () => _assignCaptain(context),
+                icon: const Icon(Icons.star_rounded, size: 14),
+                label: const Text('Assign Captain'),
+              ),
+            if (canAssignCaptain && canAdd) const SizedBox(width: 8),
+            if (canAdd)
+              OutlinedButton.icon(
+                onPressed: () => context.push('/player/new?teamId=${team.id}'),
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('Add player'),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
         for (final player in players)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
