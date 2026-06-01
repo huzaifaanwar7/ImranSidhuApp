@@ -36,8 +36,6 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
   String? _tournamentId;
   MatchFormat _format = MatchFormat.t20;
   MatchState _state = MatchState.scheduled;
-  TossDecision _tossDecision = TossDecision.bat;
-  String? _tossWinnerId;
   DateTime _scheduledStart = DateTime.now();
   bool _saving = false;
 
@@ -47,7 +45,6 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
     final teams = MockData.teams;
     if (teams.isNotEmpty) _homeId = teams.first.id;
     if (teams.length > 1) _awayId = teams[1].id;
-    _tossWinnerId = _homeId;
   }
 
   @override
@@ -106,8 +103,8 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
       format: _format,
       oversPerInnings:
           _int(_overs.text, _format.overs == 0 ? 20 : _format.overs),
-      tossWinnerTeamId: _tossWinnerId,
-      tossDecision: _tossWinnerId == null ? null : _tossDecision,
+      tossWinnerTeamId: null,
+      tossDecision: null,
       state: _state,
       stageLabel: _emptyToNull(_stage.text),
       homePlayingXI: MockData.playersByTeam(home.id)
@@ -284,10 +281,6 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
                         ),
                       ),
                       const SizedBox(height: 18),
-                      _label('TOSS'),
-                      const SizedBox(height: 8),
-                      _tossBox(teams),
-                      const SizedBox(height: 18),
                       _field('STAGE / MATCH LABEL', _stage),
                       const SizedBox(height: 12),
                       _field('VENUE', _venue),
@@ -328,10 +321,6 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
           } else {
             _awayId = pickedId;
           }
-          if (_tossWinnerId == null ||
-              _tossWinnerId == (isHome ? _awayId : _homeId)) {
-            _tossWinnerId = pickedId;
-          }
         });
       },
       child: Container(
@@ -361,85 +350,6 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
                   size: 8, color: AppColors.grey, letterSpacing: 0.18),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _tossBox(List<Team> teams) {
-    final availableIds = [_homeId, _awayId].whereType<String>().toList();
-    if (!availableIds.contains(_tossWinnerId)) {
-      _tossWinnerId = availableIds.isEmpty ? null : availableIds.first;
-    }
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.line),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              for (final id in availableIds) ...[
-                Expanded(
-                  child: _miniPill(
-                    MockData.teamById(id).shortCode,
-                    _tossWinnerId == id,
-                    () => setState(() => _tossWinnerId = id),
-                  ),
-                ),
-                if (id != availableIds.last) const SizedBox(width: 8),
-              ],
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _miniPill(
-                  'Bat first',
-                  _tossDecision == TossDecision.bat,
-                  () => setState(() => _tossDecision = TossDecision.bat),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _miniPill(
-                  'Bowl first',
-                  _tossDecision == TossDecision.bowl,
-                  () => setState(() => _tossDecision = TossDecision.bowl),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _miniPill(String label, bool active, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: active ? AppColors.navyDeep : AppColors.creamSoft,
-          borderRadius: BorderRadius.circular(8),
-          border:
-              Border.all(color: active ? AppColors.navyDeep : AppColors.line),
-        ),
-        child: Text(
-          label,
-          style: AppTextStyles.fraunces(
-            size: 12,
-            weight: FontWeight.w700,
-            color: active ? AppColors.cream : AppColors.ink,
-          ),
         ),
       ),
     );

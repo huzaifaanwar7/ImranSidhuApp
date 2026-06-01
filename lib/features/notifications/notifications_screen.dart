@@ -13,6 +13,7 @@ class NotificationsScreen extends StatefulWidget {
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
   bool _loading = false;
+  bool _marking = false;
   List<Map<String, dynamic>> _items = [];
 
   @override
@@ -37,10 +38,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _markAllRead() async {
+    if (_marking) return;
+    setState(() => _marking = true);
     try {
       await ApiClient.instance.post('/api/notifications/read-all');
       await _load();
     } catch (_) {/* ignore */}
+    finally {
+      if (mounted) setState(() => _marking = false);
+    }
   }
 
   IconData _iconFor(String type) => switch (type) {
@@ -92,10 +98,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             title: 'Notifications',
             italic: ' ',
             actions: [
-              TextButton(
-                onPressed: _markAllRead,
-                child: const Text('READ ALL', style: TextStyle(color: AppColors.gold)),
-              ),
+              _marking
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.gold)),
+                    )
+                  : TextButton(
+                      onPressed: _markAllRead,
+                      child: const Text('READ ALL', style: TextStyle(color: AppColors.gold)),
+                    ),
             ],
           ),
           Expanded(

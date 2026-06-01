@@ -13,6 +13,7 @@ class SponsorsScreen extends StatefulWidget {
 
 class _SponsorsScreenState extends State<SponsorsScreen> {
   bool _loading = false;
+  bool _saving = false;
   List<Map<String, dynamic>> _items = [];
 
   static const _slots = [
@@ -87,6 +88,7 @@ class _SponsorsScreenState extends State<SponsorsScreen> {
       'slots': selected.join(','),
       'isActive': true,
     };
+    setState(() => _saving = true);
     try {
       if (existing == null) {
         await ApiClient.instance.post('/api/sponsors', body);
@@ -96,6 +98,8 @@ class _SponsorsScreenState extends State<SponsorsScreen> {
       await _load();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -111,10 +115,15 @@ class _SponsorsScreenState extends State<SponsorsScreen> {
       ),
     );
     if (ok != true) return;
+    setState(() => _saving = true);
     try {
       await ApiClient.instance.delete('/api/sponsors/$id');
-      _load();
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'))); }
+      await _load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -125,8 +134,10 @@ class _SponsorsScreenState extends State<SponsorsScreen> {
       floatingActionButton: canEdit
           ? FloatingActionButton(
               backgroundColor: AppColors.ballRed,
-              onPressed: () => _addOrEdit(),
-              child: const Icon(Icons.add, color: Colors.white),
+              onPressed: _saving ? null : () => _addOrEdit(),
+              child: _saving
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.add, color: Colors.white),
             )
           : null,
       body: Column(

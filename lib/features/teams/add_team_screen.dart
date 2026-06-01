@@ -171,11 +171,15 @@ class _AddTeamScreenState extends State<AddTeamScreen> {
       ),
     );
     if (confirmed != true || widget.teamId == null) return;
+    setState(() => _saving = true);
     try {
       await BackendSync.instance.deleteTeam(widget.teamId!);
       if (mounted) context.go('/teams');
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
     }
   }
 

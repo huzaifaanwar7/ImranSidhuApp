@@ -140,8 +140,10 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: '/tournament/:id',
-      builder: (_, s) =>
-          TournamentDetailScreen(tournamentId: s.pathParameters['id']!),
+      builder: (_, s) => TournamentDetailScreen(
+        tournamentId: s.pathParameters['id']!,
+        initialTab: int.tryParse(s.uri.queryParameters['tab'] ?? '0') ?? 0,
+      ),
     ),
     GoRoute(
       path: '/tournament/:id/edit',

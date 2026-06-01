@@ -183,11 +183,15 @@ class _AddPlayerScreenState extends State<AddPlayerScreen> {
       ),
     );
     if (confirmed != true || widget.playerId == null) return;
+    setState(() => _saving = true);
     try {
       await BackendSync.instance.deletePlayer(widget.playerId!);
       if (mounted) context.go('/players');
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
     }
   }
 

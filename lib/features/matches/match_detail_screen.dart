@@ -76,6 +76,7 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
 
   Timer? _pollTimer;
   Map<String, dynamic>? _liveScorecard;
+  bool _loading = false;
 
   @override
   void initState() {
@@ -98,21 +99,146 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
   }
 
   Future<void> _startMatch(CricketMatch m) async {
+    // Step 1: toss
+    final toss = await _showTossSheet(m);
+    if (toss == null || !mounted) return;
+
     final mid = int.tryParse(m.id);
     if (mid == null) return;
+    setState(() => _loading = true);
     try {
+      // Step 2: save toss
+      final winnerId = int.tryParse(toss['winnerId']!);
+      if (winnerId != null) {
+        await ScoringService.instance.saveToss(
+          matchId: mid,
+          tossWinnerTeamId: winnerId,
+          tossDecision: toss['decision']!,
+        );
+      }
+      // Step 3: start match
       await ScoringService.instance.startMatch(mid);
       await BackendSync.instance.refreshAll();
       if (!mounted) return;
-      setState(() {});
+      setState(() => _loading = false);
       context.push('/match/${m.id}/score');
     } catch (e) {
       if (mounted) {
+        setState(() => _loading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Could not start match: $e')),
         );
       }
     }
+  }
+
+  Future<Map<String, String>?> _showTossSheet(CricketMatch m) async {
+    final home = MockData.teamById(m.homeTeamId);
+    final away = MockData.teamById(m.awayTeamId);
+    String winnerId = m.homeTeamId;
+    String decision = 'Bat';
+
+    return showModalBottomSheet<Map<String, String>?>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isDismissible: true,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) => Container(
+          decoration: const BoxDecoration(
+            color: AppColors.cream,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: EdgeInsets.fromLTRB(
+              20, 20, 20, MediaQuery.of(ctx).viewInsets.bottom + 24),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36, height: 4,
+                    decoration: BoxDecoration(
+                        color: AppColors.line,
+                        borderRadius: BorderRadius.circular(20)),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(children: [
+                  const Icon(Icons.sports_cricket_rounded,
+                      color: AppColors.navy, size: 22),
+                  const SizedBox(width: 8),
+                  Text('Toss', style: AppTextStyles.headlineLarge),
+                ]),
+                const SizedBox(height: 16),
+                Text('TOSS WINNER', style: AppTextStyles.caption),
+                const SizedBox(height: 8),
+                Row(children: [
+                  _tossChip(home.name, winnerId == m.homeTeamId,
+                      () => setModal(() => winnerId = m.homeTeamId)),
+                  const SizedBox(width: 8),
+                  _tossChip(away.name, winnerId == m.awayTeamId,
+                      () => setModal(() => winnerId = m.awayTeamId)),
+                ]),
+                const SizedBox(height: 16),
+                Text('DECISION', style: AppTextStyles.caption),
+                const SizedBox(height: 8),
+                Row(children: [
+                  _tossChip('Bat First', decision == 'Bat',
+                      () => setModal(() => decision = 'Bat')),
+                  const SizedBox(width: 8),
+                  _tossChip('Bowl First', decision == 'Bowl',
+                      () => setModal(() => decision = 'Bowl')),
+                ]),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => Navigator.pop(
+                        ctx, {'winnerId': winnerId, 'decision': decision}),
+                    icon: const Icon(Icons.play_circle_fill_rounded),
+                    label: const Text('START MATCH'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _tossChip(String label, bool selected, VoidCallback onTap) {
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.navyDeep : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+                color: selected ? AppColors.navyDeep : AppColors.line,
+                width: 1.4),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.fraunces(
+              size: 13,
+              weight: FontWeight.w800,
+              color: selected ? AppColors.cream : AppColors.navyDeep,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _endMatch(CricketMatch m) async {
@@ -133,7 +259,9 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setModal) => Container(
+        builder: (ctx, setModal) {
+          bool _btnBusy = false;
+          return Container(
           decoration: const BoxDecoration(
             color: AppColors.cream,
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -163,10 +291,10 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    _winnerChip(home.shortCode, winnerId == home.id,
+                    _winnerChip(home.name, winnerId == home.id,
                         () => setModal(() => winnerId = home.id)),
                     const SizedBox(width: 8),
-                    _winnerChip(away.shortCode, winnerId == away.id,
+                    _winnerChip(away.name, winnerId == away.id,
                         () => setModal(() => winnerId = away.id)),
                     const SizedBox(width: 8),
                     _winnerChip('TIE', winnerId == 'tie',
@@ -237,9 +365,12 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
                     const SizedBox(width: 8),
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: winnerId == null
+                        onPressed: (winnerId == null || _btnBusy)
                             ? null
-                            : () => Navigator.pop(ctx, true),
+                            : () {
+                                setModal(() => _btnBusy = true);
+                                Navigator.pop(ctx, true);
+                              },
                         child: const Text('END MATCH'),
                       ),
                     ),
@@ -248,11 +379,13 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
               ],
             ),
           ),
-        ),
+        );
+        },
       ),
     );
 
     if (confirmed != true) return;
+    setState(() => _loading = true);
     try {
       await ScoringService.instance.endMatch(
         matchId: mid,
@@ -265,6 +398,7 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
       if (mounted) context.go('/home');
     } catch (e) {
       if (mounted) {
+        setState(() => _loading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Could not end match: $e')),
         );
@@ -277,7 +411,7 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
           decoration: BoxDecoration(
             color: selected ? AppColors.navy : Colors.white,
             borderRadius: BorderRadius.circular(10),
@@ -287,10 +421,17 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
             ),
           ),
           alignment: Alignment.center,
-          child: Text(label,
-              style: AppTextStyles.bebas(
-                  size: 14,
-                  color: selected ? AppColors.cream : AppColors.navyDeep)),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.fraunces(
+              size: 11,
+              weight: FontWeight.w800,
+              color: selected ? AppColors.cream : AppColors.navyDeep,
+            ),
+          ),
         ),
       ),
     );
@@ -413,32 +554,42 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
                     padding: const EdgeInsets.all(12),
                     child: m.isUpcoming
                         ? ElevatedButton.icon(
-                            onPressed: () => _startMatch(m),
-                            icon: const Icon(Icons.play_circle_fill_rounded),
-                            label: const Text('START MATCH'),
+                            onPressed: _loading ? null : () => _startMatch(m),
+                            icon: _loading
+                                ? const SizedBox(
+                                    width: 16, height: 16,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2, color: Colors.white))
+                                : const Icon(Icons.play_circle_fill_rounded),
+                            label: Text(_loading ? 'PLEASE WAIT...' : 'START MATCH'),
                           )
                         : Row(
                             children: [
                               Expanded(
                                 flex: 2,
                                 child: ElevatedButton.icon(
-                                  onPressed: () =>
-                                      context.push('/match/${m.id}/score'),
-                                  icon:
-                                      const Icon(Icons.sports_cricket_rounded),
+                                  onPressed: _loading
+                                      ? null
+                                      : () => context.push('/match/${m.id}/score'),
+                                  icon: const Icon(Icons.sports_cricket_rounded),
                                   label: const Text('OPEN SCORING'),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: OutlinedButton(
-                                  onPressed: () => _endMatch(m),
+                                  onPressed: _loading ? null : () => _endMatch(m),
                                   style: OutlinedButton.styleFrom(
                                     foregroundColor: AppColors.ballRed,
-                                    side: const BorderSide(
-                                        color: AppColors.ballRed),
+                                    side: const BorderSide(color: AppColors.ballRed),
                                   ),
-                                  child: const Text('END'),
+                                  child: _loading
+                                      ? const SizedBox(
+                                          width: 14, height: 14,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: AppColors.ballRed))
+                                      : const Text('END'),
                                 ),
                               ),
                             ],

@@ -15,6 +15,7 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
   final _search = TextEditingController();
   String? _roleFilter;
   bool _loading = false;
+  final Set<int> _busyIds = {};
   List<Map<String, dynamic>> _users = [];
   static const _roles = ['SuperAdmin', 'Captain', 'Scorer', 'Player', 'Fan'];
 
@@ -41,11 +42,15 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
   }
 
   Future<void> _toggleActive(Map<String, dynamic> u) async {
+    final id = u['id'] as int;
+    setState(() => _busyIds.add(id));
     try {
-      await ApiClient.instance.put('/api/users/${u['id']}/status', {'isActive': !(u['isActive'] as bool)});
+      await ApiClient.instance.put('/api/users/$id/status', {'isActive': !(u['isActive'] as bool)});
       _load();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => _busyIds.remove(id));
     }
   }
 
@@ -61,11 +66,15 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
       ),
     );
     if (newRole == null || newRole == u['role']) return;
+    final id = u['id'] as int;
+    setState(() => _busyIds.add(id));
     try {
-      await ApiClient.instance.put('/api/users/${u['id']}/role', {'role': newRole});
+      await ApiClient.instance.put('/api/users/$id/role', {'role': newRole});
       _load();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => _busyIds.remove(id));
     }
   }
 
@@ -81,11 +90,15 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
       ),
     );
     if (ok != true) return;
+    final id = u['id'] as int;
+    setState(() => _busyIds.add(id));
     try {
-      await ApiClient.instance.delete('/api/users/${u['id']}');
+      await ApiClient.instance.delete('/api/users/$id');
       _load();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => _busyIds.remove(id));
     }
   }
 
@@ -103,11 +116,15 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
       ),
     );
     if (ok != true || ctrl.text.length < 6) return;
+    final id = u['id'] as int;
+    setState(() => _busyIds.add(id));
     try {
-      await ApiClient.instance.post('/api/users/${u['id']}/reset-password', {'newPassword': ctrl.text});
+      await ApiClient.instance.post('/api/users/$id/reset-password', {'newPassword': ctrl.text});
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password reset.')));
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => _busyIds.remove(id));
     }
   }
 
@@ -231,10 +248,17 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
             children: [
               _statusPill(status, isActive),
               const Spacer(),
-              IconButton(icon: const Icon(Icons.swap_horiz_rounded, size: 18), tooltip: 'Change role', onPressed: () => _changeRole(u)),
-              IconButton(icon: Icon(isActive ? Icons.block : Icons.check_circle, size: 18), tooltip: isActive ? 'Suspend' : 'Activate', onPressed: () => _toggleActive(u)),
-              IconButton(icon: const Icon(Icons.lock_reset, size: 18), tooltip: 'Reset password', onPressed: () => _resetPassword(u)),
-              IconButton(icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.ballRed), onPressed: () => _delete(u)),
+              if (_busyIds.contains(u['id'] as int))
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                )
+              else ...[
+                IconButton(icon: const Icon(Icons.swap_horiz_rounded, size: 18), tooltip: 'Change role', onPressed: () => _changeRole(u)),
+                IconButton(icon: Icon(isActive ? Icons.block : Icons.check_circle, size: 18), tooltip: isActive ? 'Suspend' : 'Activate', onPressed: () => _toggleActive(u)),
+                IconButton(icon: const Icon(Icons.lock_reset, size: 18), tooltip: 'Reset password', onPressed: () => _resetPassword(u)),
+                IconButton(icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.ballRed), onPressed: () => _delete(u)),
+              ],
             ],
           ),
         ],

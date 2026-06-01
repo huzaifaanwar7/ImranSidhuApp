@@ -15,8 +15,13 @@ import '../../models/tournament.dart';
 
 class TournamentDetailScreen extends StatefulWidget {
   final String tournamentId;
+  final int initialTab;
 
-  const TournamentDetailScreen({super.key, required this.tournamentId});
+  const TournamentDetailScreen({
+    super.key,
+    required this.tournamentId,
+    this.initialTab = 0,
+  });
 
   @override
   State<TournamentDetailScreen> createState() => _TournamentDetailScreenState();
@@ -24,7 +29,8 @@ class TournamentDetailScreen extends StatefulWidget {
 
 class _TournamentDetailScreenState extends State<TournamentDetailScreen>
     with SingleTickerProviderStateMixin {
-  late final TabController _tab = TabController(length: 4, vsync: this);
+  late final TabController _tab =
+      TabController(length: 4, vsync: this, initialIndex: widget.initialTab);
 
   @override
   void dispose() {
@@ -579,9 +585,10 @@ class _FixturesState extends State<_Fixtures> {
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: _generating ? null : _generate,
-                    icon: const Icon(Icons.auto_awesome_rounded, size: 16),
-                    label: Text(
-                        _generating ? 'GENERATING...' : 'AUTO-GENERATE'),
+                    icon: _generating
+                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.auto_awesome_rounded, size: 16),
+                    label: Text(_generating ? 'GENERATING...' : 'AUTO-GENERATE'),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -766,9 +773,12 @@ class _KnockoutSheetState extends State<_KnockoutSheet> {
             const SizedBox(height: 18),
             SizedBox(
               width: double.infinity,
-              child: ElevatedButton(
+              child: ElevatedButton.icon(
                 onPressed: _saving ? null : _create,
-                child: Text(_saving ? 'CREATING...' : 'CREATE FIXTURE'),
+                icon: _saving
+                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.add_rounded, size: 16),
+                label: Text(_saving ? 'CREATING...' : 'CREATE FIXTURE'),
               ),
             ),
           ],

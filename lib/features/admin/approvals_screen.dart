@@ -15,6 +15,7 @@ class _ApprovalsScreenState extends State<ApprovalsScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs = TabController(length: 4, vsync: this);
   bool _loading = false;
+  final Set<int> _busyIds = {};
   String _status = 'Pending';
   List<dynamic> _items = [];
 
@@ -50,11 +51,14 @@ class _ApprovalsScreenState extends State<ApprovalsScreen>
   }
 
   Future<void> _approve(int id) async {
+    setState(() => _busyIds.add(id));
     try {
       await ApiClient.instance.post('/api/approvals/$id/approve');
       _load();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => _busyIds.remove(id));
     }
   }
 
@@ -72,11 +76,14 @@ class _ApprovalsScreenState extends State<ApprovalsScreen>
       ),
     );
     if (ok != true) return;
+    setState(() => _busyIds.add(id));
     try {
       await ApiClient.instance.post('/api/approvals/$id/reject', {'rejectionReason': ctrl.text});
       _load();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => _busyIds.remove(id));
     }
   }
 
@@ -221,25 +228,33 @@ class _ApprovalsScreenState extends State<ApprovalsScreen>
           ],
           const SizedBox(height: 10),
           if (isPending)
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _reject(req['id'] as int),
-                    icon: const Icon(Icons.close, color: AppColors.ballRed),
-                    label: const Text('REJECT', style: TextStyle(color: AppColors.ballRed)),
+            Builder(builder: (_) {
+              final id = req['id'] as int;
+              final busy = _busyIds.contains(id);
+              return Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: busy ? null : () => _reject(id),
+                      icon: busy
+                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.ballRed))
+                          : const Icon(Icons.close, color: AppColors.ballRed),
+                      label: const Text('REJECT', style: TextStyle(color: AppColors.ballRed)),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () => _approve(req['id'] as int),
-                    icon: const Icon(Icons.check, color: Colors.white),
-                    label: const Text('APPROVE'),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: busy ? null : () => _approve(id),
+                      icon: busy
+                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.check, color: Colors.white),
+                      label: const Text('APPROVE'),
+                    ),
                   ),
-                ),
-              ],
-            )
+                ],
+              );
+            })
           else
             Text('Reviewed ${req['reviewedAt'] ?? ''}',
                 style: AppTextStyles.mono(size: 8, color: AppColors.grey, letterSpacing: 0.15)),

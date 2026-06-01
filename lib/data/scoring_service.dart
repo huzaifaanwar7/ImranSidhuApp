@@ -75,6 +75,17 @@ class ScoringService {
     }
   }
 
+  Future<void> saveToss({
+    required int matchId,
+    required int tossWinnerTeamId,
+    required String tossDecision, // 'Bat' or 'Bowl'
+  }) async {
+    await _api.post('/api/matches/$matchId/toss', {
+      'tossWinnerTeamId': tossWinnerTeamId,
+      'tossDecision': tossDecision,
+    });
+  }
+
   Future<void> undoLastBall(int matchId) async {
     await _api.post('/api/matches/$matchId/balls/undo');
   }

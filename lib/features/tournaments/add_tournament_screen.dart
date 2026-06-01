@@ -191,7 +191,12 @@ class _AddTournamentScreenState extends State<AddTournamentScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(_isEdit ? 'Tournament updated.' : 'Tournament created.'),
       ));
-      context.pop();
+      if (_isEdit || tid == null) {
+        context.pop();
+      } else {
+        // New tournament → go straight to FIXTURES tab to generate schedule
+        context.go('/tournament/${saved.id}?tab=2');
+      }
     } on ApiException catch (e) {
       if (mounted) { setState(() => _saving = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
     } catch (e) {
@@ -219,11 +224,15 @@ class _AddTournamentScreenState extends State<AddTournamentScreen> {
       ),
     );
     if (confirmed != true || widget.tournamentId == null) return;
+    setState(() => _saving = true);
     try {
       await BackendSync.instance.deleteTournament(widget.tournamentId!);
       if (mounted) context.go('/tournaments');
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
     }
   }
 
