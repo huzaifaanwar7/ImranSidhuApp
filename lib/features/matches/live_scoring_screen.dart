@@ -96,6 +96,8 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
   String get _bowlingTeamId => inningsNo == 1 ? _secondBatId : _firstBatId;
   bool get _isChasing => inningsNo == 2;
 
+  bool _busy = false;
+
   bool isFreeHit = false;
   bool wideToggle = false;
   bool noBallToggle = false;
@@ -235,6 +237,7 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
     bool isLegalDelivery = true,
     bool isWicket = false,
     String? wicketType,
+    int? dismissedPlayerId,
   }) async {
     final matchIdInt = int.tryParse(widget.matchId);
     if (matchIdInt == null) return;
@@ -256,6 +259,7 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
         isFreeHit: isFreeHit,
         isWicket: isWicket,
         wicketType: wicketType,
+        dismissedPlayerId: dismissedPlayerId,
       );
     } catch (_) {/* network errors swallowed — local state is the source of truth */}
   }
@@ -300,16 +304,21 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
   }
 
   void _pushRecent(String s) {
-    if (recentBalls.first == '—') recentBalls.removeAt(0);
-    recentBalls.insert(recentBalls.length, s);
-    if (recentBalls.length > 6) recentBalls.removeAt(0);
+    // Wides and no-balls are not legal deliveries — don't consume a placeholder slot
+    final isNonLegal = s == 'Wd' || s == 'Nb';
+    if (!isNonLegal && recentBalls.isNotEmpty && recentBalls.first == '-') {
+      recentBalls.removeAt(0);
+    }
+    recentBalls.add(s);
   }
 
   void _recordRun(int runs) {
+    if (_busy) return;
     final m = MockData.matchById(widget.matchId);
     final maxBalls = m.oversPerInnings * 6;
     // Hard stop: never let an innings exceed its overs or 10 wickets.
     if (legalBalls >= maxBalls || wickets >= 10) return;
+    _busy = true;
     HapticFeedback.lightImpact();
     _snapshot();
     final bool wasWide = wideToggle, wasNoBall = noBallToggle;
@@ -319,7 +328,16 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
       if (wideToggle || noBallToggle) {
         totalRuns += 1 + runs;
         bowlerRuns += 1 + runs;
-        _pushRecent(wideToggle ? 'Wd' : 'Nb');
+        // NoBall pe batter ke runs + balls faced dono count hote hain
+        if (noBallToggle) {
+          strikerRuns += runs;
+          strikerBalls++;
+        }
+        // Odd runs complete hone pe batsmen cross karte hain
+        if (runs.isOdd) _swap();
+        _pushRecent(wideToggle
+            ? (runs > 0 ? 'Wd+$runs' : 'Wd')
+            : (runs > 0 ? 'Nb+$runs' : 'Nb'));
         isFreeHit = noBallToggle;
         wideToggle = false;
         noBallToggle = false;
@@ -351,6 +369,7 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
         overNumber++;
         bowlerLegalBalls = 0;
         _swap();
+        recentBalls..clear()..addAll(['-', '-', '-', '-', '-', '-']);
         overEnded = true;
       }
     });
@@ -366,6 +385,9 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
     } else {
       _pushBall(runsBatter: runs);
     }
+    Future.delayed(const Duration(milliseconds: 350), () {
+      if (mounted) setState(() => _busy = false);
+    });
     // Check innings/match end AFTER state update so values are current.
     if (_isChasing && target > 0 && totalRuns >= target) {
       _finishMatch();
@@ -377,6 +399,12 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
   }
 
   void _wicketSheet() async {
+    if (_busy) return;
+    // Wide or NoBall active — only run-out is valid on these deliveries
+    if (wideToggle || noBallToggle) {
+      _extraRunOutSheet();
+      return;
+    }
     final m = MockData.matchById(widget.matchId);
     final maxBalls = m.oversPerInnings * 6;
     if (legalBalls >= maxBalls || wickets >= 10) return; // innings complete
@@ -387,6 +415,7 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
       builder: (_) => _WicketSheet(),
     );
     if (r != null) {
+      _busy = true;
       HapticFeedback.heavyImpact();
       _snapshot();
       bool overEnded = false;
@@ -405,10 +434,14 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
           overNumber++;
           bowlerLegalBalls = 0;
           _swap();
+          recentBalls..clear()..addAll(['-', '-', '-', '-', '-', '-']);
           overEnded = true;
         }
       });
       _pushBall(runsBatter: 0, isWicket: true, wicketType: r.label.replaceAll(' ', ''));
+      Future.delayed(const Duration(milliseconds: 350), () {
+        if (mounted) setState(() => _busy = false);
+      });
       if (_isChasing && target > 0 && totalRuns >= target) {
         _finishMatch();
       } else if (wickets >= 10) {
@@ -416,7 +449,8 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
       } else if (legalBalls >= maxBalls) {
         _handleInningsEnd('OversComplete');
       } else if (overEnded) {
-        _showOverEndSheet();
+        // Over ended on a wicket ball — need both new bowler and new batter
+        _showOverEndSheet(onClose: wickets < 10 ? _promptNextBatter : null);
       } else {
         _promptNextBatter();
       }
@@ -708,6 +742,136 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
     });
   }
 
+  /// Run-out on a wide or no-ball. Only run-out is valid on these extras.
+  Future<void> _extraRunOutSheet() async {
+    if (_busy) return;
+    final bool wasWide = wideToggle;
+    final striker = MockData.playerById(strikerId);
+    final nonStriker = MockData.playerById(nonStrikerId);
+    final extraLabel = wasWide ? 'Wide' : 'No Ball';
+
+    final outId = await showModalBottomSheet<String?>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: AppColors.cream,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36, height: 4,
+                  decoration: BoxDecoration(color: AppColors.line, borderRadius: BorderRadius.circular(20)),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(children: [
+                const Icon(Icons.flag_rounded, color: AppColors.ballRed),
+                const SizedBox(width: 8),
+                Text('Run Out on $extraLabel', style: AppTextStyles.headlineLarge),
+              ]),
+              const SizedBox(height: 6),
+              Text('Kaun run out hua?', style: AppTextStyles.bodyLarge),
+              const SizedBox(height: 16),
+              Row(children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(ctx, strikerId),
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Text(striker.fullName,
+                          style: AppTextStyles.fraunces(size: 12, weight: FontWeight.w700),
+                          textAlign: TextAlign.center),
+                      Text('ON STRIKE', style: AppTextStyles.mono(size: 8, color: AppColors.ballRed)),
+                    ]),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(ctx, nonStrikerId),
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Text(nonStriker.fullName,
+                          style: AppTextStyles.fraunces(size: 12, weight: FontWeight.w700),
+                          textAlign: TextAlign.center),
+                      Text('NON-STRIKER', style: AppTextStyles.mono(size: 8, color: AppColors.grey)),
+                    ]),
+                  ),
+                ),
+              ]),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (outId == null || !mounted) return;
+
+    setState(() => _busy = true);
+    HapticFeedback.heavyImpact();
+    _snapshot();
+    final isStrikerOut = outId == strikerId;
+
+    setState(() {
+      wickets++;
+      totalRuns += 1; // extra penalty (wide or no-ball)
+      bowlerRuns += 1;
+      _pushRecent(wasWide ? 'WdW' : 'NbW');
+      wideToggle = false;
+      noBallToggle = false;
+      isFreeHit = false;
+      // Reset dismissed batter's score line
+      if (isStrikerOut) {
+        strikerRuns = 0;
+        strikerBalls = 0;
+      } else {
+        nonStrikerRuns = 0;
+        nonStrikerBalls = 0;
+      }
+    });
+
+    _pushBall(
+      runsBatter: 0,
+      runsExtras: 1,
+      extrasType: wasWide ? 'Wide' : 'NoBall',
+      isLegalDelivery: false,
+      isWicket: true,
+      wicketType: 'RunOut',
+      dismissedPlayerId: int.tryParse(outId),
+    );
+    Future.delayed(const Duration(milliseconds: 350), () {
+      if (mounted) setState(() => _busy = false);
+    });
+
+    if (wickets >= 10) {
+      _handleInningsEnd('AllOut');
+    } else if (isStrikerOut) {
+      _promptNextBatter();
+    } else {
+      _promptNextNonStriker();
+    }
+  }
+
+  void _promptNextNonStriker() {
+    final players = MockData.playersByTeam(_battingTeamId)
+        .where((p) => p.id != strikerId)
+        .toList();
+    if (players.isEmpty) return;
+    _pickPlayer('Select new batter', players, (id) {
+      setState(() {
+        nonStrikerId = id;
+        nonStrikerRuns = 0;
+        nonStrikerBalls = 0;
+      });
+    });
+  }
+
   void _showMatchEndSheet({String reason = ''}) {
     final m = MockData.matchById(widget.matchId);
     final home = MockData.teamById(m.homeTeamId);
@@ -972,9 +1136,12 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
     });
   }
 
-  void _selectBowler() {
+  void _selectBowler({VoidCallback? onDone}) {
     final players = MockData.playersByTeam(_bowlingTeamId).toList();
-    if (players.isEmpty) return;
+    if (players.isEmpty) {
+      onDone?.call();
+      return;
+    }
     _pickPlayer('Select bowler', players, (id) {
       setState(() {
         bowlerId = id;
@@ -982,10 +1149,11 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
         bowlerWickets = 0;
         bowlerLegalBalls = 0;
       });
+      onDone?.call();
     });
   }
 
-  void _showOverEndSheet() {
+  void _showOverEndSheet({VoidCallback? onClose}) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1026,7 +1194,7 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
                     child: OutlinedButton(
                       onPressed: () {
                         Navigator.pop(context);
-                        _selectBowler();
+                        _selectBowler(onDone: onClose);
                       },
                       child: const Text('CHANGE BOWLER'),
                     ),
@@ -1034,7 +1202,10 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () {
+                        Navigator.pop(context);
+                        onClose?.call();
+                      },
                       child: const Text('NEXT OVER  →'),
                     ),
                   ),
@@ -1338,10 +1509,7 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
                               letterSpacing: 0.2,
                               color: AppColors.grey)),
                       Text(
-                          '${recentBalls.where((b) => b != '—' && b != '·' && b != 'W').fold<int>(0, (s, b) {
-                            final n = int.tryParse(b);
-                            return s + (n ?? 0);
-                          })} RUNS',
+                          '${recentBalls.fold<int>(0, (s, b) => s + _pillRuns(b))} RUNS',
                           style: AppTextStyles.mono(
                             size: 9,
                             color: AppColors.navyDeep,
@@ -1351,8 +1519,11 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Row(
-                    children: recentBalls.map((b) => _ballPill(b)).toList(),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: recentBalls.map((b) => _ballPill(b)).toList(),
+                    ),
                   ),
                 ],
               ),
@@ -1372,6 +1543,11 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
               ),
               child: Column(
                 children: [
+                  if (_busy)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: LinearProgressIndicator(minHeight: 2),
+                    ),
                   Row(
                     children: [
                       _padRun(0, big: true),
@@ -1461,6 +1637,21 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
         ),
       ),
     );
+  }
+
+  int _pillRuns(String b) {
+    if (b == '·' || b == 'W' || b == '-') return 0;
+    if (b.startsWith('Wd')) {
+      final extra = int.tryParse(b.length > 3 ? b.substring(3) : '') ?? 0;
+      return 1 + extra;
+    }
+    if (b.startsWith('Nb')) {
+      final extra = int.tryParse(b.length > 3 ? b.substring(3) : '') ?? 0;
+      return 1 + extra;
+    }
+    if (b.startsWith('Lb')) return int.tryParse(b.substring(2)) ?? 0;
+    if (b.startsWith('B')) return int.tryParse(b.substring(1)) ?? 0;
+    return int.tryParse(b) ?? 0;
   }
 
   Widget _hk(String k, String v, {bool gold = false}) {
@@ -1574,11 +1765,11 @@ class _LiveScoringScreenState extends State<LiveScoringScreen> {
       bg = AppColors.ballRed;
       fg = Colors.white;
       border = AppColors.ballRed;
-    } else if (b == 'Wd' || b == 'Nb') {
+    } else if (b.startsWith('Wd') || b.startsWith('Nb')) {
       bg = AppColors.gold;
       fg = Colors.white;
       border = AppColors.gold;
-    } else if (b == '—') {
+    } else if (b == '-') {
       bg = AppColors.creamSoft;
       fg = AppColors.grey;
       border = AppColors.line;
