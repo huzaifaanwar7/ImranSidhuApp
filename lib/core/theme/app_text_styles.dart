@@ -72,49 +72,49 @@ class AppTextStyles {
 
   // Common named slots
   static TextStyle get displayLarge =>
-      fraunces(size: 36, weight: FontWeight.w900, color: AppColors.navyDeep);
+      fraunces(size: 38, weight: FontWeight.w900, color: AppColors.navyDeep);
   static TextStyle get displayMedium =>
-      fraunces(size: 26, weight: FontWeight.w900, color: AppColors.navyDeep);
+      fraunces(size: 28, weight: FontWeight.w900, color: AppColors.navyDeep);
   static TextStyle get headlineLarge =>
-      fraunces(size: 22, weight: FontWeight.w700, color: AppColors.navyDeep);
+      fraunces(size: 24, weight: FontWeight.w700, color: AppColors.navyDeep);
   static TextStyle get headlineMedium =>
-      fraunces(size: 18, weight: FontWeight.w700, color: AppColors.navyDeep);
+      fraunces(size: 20, weight: FontWeight.w700, color: AppColors.navyDeep);
   static TextStyle get titleLarge =>
-      fraunces(size: 16, weight: FontWeight.w700, color: AppColors.ink);
-  static TextStyle get titleMedium => dm(size: 13, weight: FontWeight.w600);
+      fraunces(size: 18, weight: FontWeight.w700, color: AppColors.ink);
+  static TextStyle get titleMedium => dm(size: 15, weight: FontWeight.w600);
 
-  static TextStyle get bodyLarge => dm(size: 14);
-  static TextStyle get bodyMedium => dm(size: 13);
-  static TextStyle get bodySmall => dm(size: 11, color: AppColors.grey);
+  static TextStyle get bodyLarge => dm(size: 15);
+  static TextStyle get bodyMedium => dm(size: 14);
+  static TextStyle get bodySmall => dm(size: 12, color: AppColors.grey);
 
   static TextStyle get labelLarge => mono(
-      size: 10,
+      size: 11,
       weight: FontWeight.w700,
       color: AppColors.ink,
       letterSpacing: 0.18);
   static TextStyle get caption =>
-      mono(size: 9, color: AppColors.grey, letterSpacing: 0.25);
+      mono(size: 10, color: AppColors.grey, letterSpacing: 0.25);
 
   static TextStyle get button => GoogleFonts.bebasNeue(
-        fontSize: 15,
+        fontSize: 17,
         color: Colors.white,
         letterSpacing: 0.1,
       );
 
   static TextStyle get scoreLarge => fraunces(
-      size: 38,
+      size: 42,
       weight: FontWeight.w900,
       color: AppColors.cream,
       letterSpacing: -0.02);
   static TextStyle get scoreMedium =>
-      fraunces(size: 22, weight: FontWeight.w900, color: AppColors.navyDeep);
+      fraunces(size: 24, weight: FontWeight.w900, color: AppColors.navyDeep);
 
   static TextStyle get teamCode =>
-      bebas(size: 14, color: Colors.white, letterSpacing: 0.04);
+      bebas(size: 15, color: Colors.white, letterSpacing: 0.04);
 
   // Section number ribbons "01 — Entry"
   static TextStyle get sectionNum => mono(
-      size: 10,
+      size: 11,
       weight: FontWeight.w400,
       color: AppColors.goldDeep,
       letterSpacing: 0.3);

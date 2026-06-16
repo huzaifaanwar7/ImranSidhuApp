@@ -83,7 +83,7 @@ class _HomeShellView extends StatelessWidget {
                             children: [
                               Icon(
                                 isSel ? t.iconFilled : t.iconOutlined,
-                                size: 20,
+                                size: 22,
                                 color:
                                     isSel ? AppColors.goldDeep : AppColors.grey,
                               ),
@@ -106,7 +106,7 @@ class _HomeShellView extends StatelessWidget {
                           Text(
                             t.label.toUpperCase(),
                             style: AppTextStyles.mono(
-                              size: 8,
+                              size: 9,
                               letterSpacing: 0.1,
                               color:
                                   isSel ? AppColors.goldDeep : AppColors.grey,
